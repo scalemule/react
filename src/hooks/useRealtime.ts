@@ -132,6 +132,7 @@ export function useRealtime(options?: UseRealtimeOptions): UseRealtimeReturn {
       }
       autoUnsubscribesRef.current = []
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, channelSignature])
 
   // Cleanup on unmount
