@@ -4,7 +4,7 @@
 
 import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react'
 import { ScaleMule } from '@scalemule/sdk'
-import type { ApiError, AuthSession } from '@scalemule/sdk'
+import type { AuthSession } from '@scalemule/sdk'
 import type { User, AuthState, ScaleMuleConfig, LoginCredentials, RegisterCredentials } from './types'
 import { toBaseConfig } from './types'
 

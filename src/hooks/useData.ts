@@ -6,7 +6,7 @@
 
 import { useState, useCallback, useEffect } from 'react'
 import { useScaleMuleContext } from '../context'
-import type { ApiError, PaginatedResponse } from '@scalemule/sdk'
+import type { ApiError } from '@scalemule/sdk'
 import type { Document, QueryOptions } from '@scalemule/sdk'
 
 interface UseDataOptions {
