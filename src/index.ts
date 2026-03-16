@@ -21,6 +21,8 @@ export { useData } from './hooks/useData'
 export { useStorage } from './hooks/useStorage'
 export { useChat } from './hooks/useChat'
 export { useRealtime } from './hooks/useRealtime'
+export { useFeatureFlags } from './hooks/useFeatureFlags'
+export type { UseFeatureFlagsOptions, UseFeatureFlagsReturn } from './hooks/useFeatureFlags'
 
 // Types
 export type {
@@ -49,6 +51,13 @@ export type {
   UploadOptions,
   Conversation,
   ChatMessage,
+  FlagEvaluation,
+  FlagDefinition,
+  FlagDetail,
+  FlagCondition,
+  TargetingRule,
+  FlagVariant,
+  FlagSegment,
 } from '@scalemule/sdk'
 
 // Re-export the base SDK for advanced usage
