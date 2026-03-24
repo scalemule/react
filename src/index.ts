@@ -23,6 +23,8 @@ export { useChat } from './hooks/useChat'
 export { useRealtime } from './hooks/useRealtime'
 export { useFeatureFlags } from './hooks/useFeatureFlags'
 export type { UseFeatureFlagsOptions, UseFeatureFlagsReturn } from './hooks/useFeatureFlags'
+export { usePushNotifications } from './hooks/usePushNotifications'
+export type { UsePushNotificationsOptions, UsePushNotificationsReturn } from './hooks/usePushNotifications'
 
 // Types
 export type {
