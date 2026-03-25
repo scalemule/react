@@ -26,6 +26,8 @@ import type { PushApiFetcher, ApiError } from '@scalemule/sdk'
 export interface UsePushNotificationsOptions {
   /** Service worker URL (default: '/sw.js') */
   serviceWorkerUrl?: string
+  /** Where the user subscribed (e.g., 'landing_prompt', 'post_signup', 'settings') */
+  registrationSource?: string
   /** Called when a push notification is received while app is in foreground */
   onNotification?: (data: unknown) => void
 }
@@ -49,7 +51,7 @@ export interface UsePushNotificationsReturn {
 export function usePushNotifications(
   options: UsePushNotificationsOptions = {}
 ): UsePushNotificationsReturn {
-  const { serviceWorkerUrl = '/sw.js', onNotification } = options
+  const { serviceWorkerUrl = '/sw.js', registrationSource, onNotification } = options
   const { client, auth } = useScaleMuleContext()
 
   const [isSupported, setIsSupported] = useState(false)
@@ -93,7 +95,7 @@ export function usePushNotifications(
   const manager = useMemo(() => {
     if (typeof window === 'undefined') return null
     try {
-      return new WebPushManager({ fetcher, serviceWorkerUrl })
+      return new WebPushManager({ fetcher, serviceWorkerUrl, registrationSource })
     } catch {
       return null
     }
