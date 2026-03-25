@@ -186,6 +186,10 @@ export function usePushNotifications(
     }
   }, [manager])
 
+  /**
+   * Clear user association from push token. Must be called BEFORE logout
+   * clears the session. See @scalemule/nextjs docs for usage example.
+   */
   const disassociateUser = useCallback(async () => {
     if (!manager) return
     try {
