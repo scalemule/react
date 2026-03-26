@@ -1004,7 +1004,8 @@ describe('useRealtime', () => {
 
     expect(unsub1).toHaveBeenCalled()
     expect(unsub2).toHaveBeenCalled()
-    expect(mockRealtime.disconnect).toHaveBeenCalled()
+    // disconnect() is intentionally NOT called on unmount — the shared
+    // RealtimeService singleton stays alive for other hooks (useNotifications, etc.)
   })
 })
 

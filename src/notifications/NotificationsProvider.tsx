@@ -24,7 +24,7 @@ import React, {
   type ReactNode,
 } from 'react'
 import { useScaleMuleContext } from '../context'
-import type { Notification, NotificationListResponse } from '@scalemule/sdk'
+import type { Notification } from '@scalemule/sdk'
 import type { ConnectionStatus } from '@scalemule/sdk'
 
 // ============================================================================

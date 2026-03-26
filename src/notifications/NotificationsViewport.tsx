@@ -11,40 +11,20 @@
  * </ScaleMuleProvider>
  * ```
  *
- * Optional — apps that want custom toast UI can use useNotifications() directly.
+ * By default renders simple built-in toasts. For branded styling, provide
+ * a renderToast prop or use NotificationToast from @scalemule/ui.
  */
 
 import React from 'react'
 import { createPortal } from 'react-dom'
 import { useNotificationsContext } from './NotificationsProvider'
 import type { ToastItem } from './NotificationsProvider'
-import type { ToastPosition, NotificationToastClassNames, NotificationContainerClassNames } from '@scalemule/ui/react'
-
-// Lazy import NotificationContainer to avoid hard dependency on @scalemule/ui
-// at module level. This allows the React SDK to work without @scalemule/ui installed
-// if the consumer provides their own renderToast.
-let NotificationContainer: React.ComponentType<{
-  toasts: ToastItem[]
-  onDismiss: (id: string) => void
-  onAction?: (id: string, actionUrl?: string) => void
-  position?: ToastPosition
-  autoHideDuration?: number
-  classNames?: NotificationContainerClassNames
-  toastClassNames?: NotificationToastClassNames
-  renderToast?: (toast: ToastItem, helpers: { dismiss: () => void }) => React.ReactNode
-}> | null = null
-
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const ui = require('@scalemule/ui/react')
-  NotificationContainer = ui.NotificationContainer
-} catch {
-  // @scalemule/ui not installed — renderToast must be provided
-}
 
 // ============================================================================
 // Types
 // ============================================================================
+
+export type ToastPosition = 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left'
 
 export interface NotificationsViewportProps {
   /** Max toasts visible at once (default: 3) */
@@ -52,83 +32,117 @@ export interface NotificationsViewportProps {
   /** Auto-hide duration per toast in ms (default: 5000, 0 = sticky) */
   autoHideDuration?: number
   /** Screen position (default: 'top-right') */
-  position?: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left'
-  /** Custom toast renderer — overrides default NotificationToast from @scalemule/ui */
+  position?: ToastPosition
+  /** Custom toast renderer — overrides built-in toast */
   renderToast?: (toast: ToastItem, helpers: { dismiss: () => void }) => React.ReactNode
   /** Called when user clicks a toast action */
   onAction?: (id: string, actionUrl?: string) => void
-  /** Custom class names for the container */
-  classNames?: NotificationContainerClassNames
-  /** Custom class names for individual toasts */
-  toastClassNames?: NotificationToastClassNames
+}
+
+// ============================================================================
+// Built-in minimal toast (no @scalemule/ui dependency)
+// ============================================================================
+
+function DefaultToast({
+  toast,
+  onDismiss,
+  onAction
+}: {
+  toast: ToastItem
+  onDismiss: () => void
+  onAction?: (id: string, actionUrl?: string) => void
+}) {
+  return (
+    <div
+      onClick={() => { onAction?.(toast.id, toast.actionUrl); onDismiss() }}
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: '12px',
+        padding: '14px 16px',
+        background: 'var(--sm-toast-bg, #ffffff)',
+        color: 'var(--sm-toast-text, #1a1a1a)',
+        borderRadius: 'var(--sm-toast-border-radius, 10px)',
+        boxShadow: 'var(--sm-toast-shadow, 0 4px 20px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.08))',
+        fontFamily: 'var(--sm-toast-font-family, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif)',
+        fontSize: '14px',
+        lineHeight: '1.4',
+        maxWidth: '380px',
+        width: '100%',
+        cursor: 'pointer',
+        border: '1px solid var(--sm-toast-border, rgba(0,0,0,0.06))'
+      }}
+      role="alert"
+    >
+      {toast.iconUrl && (
+        <img
+          src={toast.iconUrl}
+          alt=""
+          style={{ width: 40, height: 40, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }}
+        />
+      )}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 600, marginBottom: 2 }}>{toast.title}</div>
+        <div style={{ color: 'var(--sm-toast-text-secondary, #666)', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {toast.body}
+        </div>
+      </div>
+      <button
+        onClick={(e) => { e.stopPropagation(); onDismiss() }}
+        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--sm-toast-text-secondary, #999)', fontSize: 18, lineHeight: 1, flexShrink: 0 }}
+        aria-label="Dismiss notification"
+      >
+        &times;
+      </button>
+    </div>
+  )
 }
 
 // ============================================================================
 // Component
 // ============================================================================
 
+const positionStyles: Record<ToastPosition, React.CSSProperties> = {
+  'top-right': { top: 16, right: 16 },
+  'top-left': { top: 16, left: 16 },
+  'bottom-right': { bottom: 16, right: 16 },
+  'bottom-left': { bottom: 16, left: 16 }
+}
+
 export function NotificationsViewport({
   maxVisible = 3,
-  autoHideDuration = 5000,
   position = 'top-right',
   renderToast,
-  onAction,
-  classNames,
-  toastClassNames,
+  onAction
 }: NotificationsViewportProps) {
   const { toasts, dismissToast } = useNotificationsContext()
   const visibleToasts = toasts.slice(0, maxVisible)
 
   if (visibleToasts.length === 0) return null
 
-  // Render without @scalemule/ui if renderToast is provided
-  if (renderToast || !NotificationContainer) {
-    if (!renderToast) {
-      // No @scalemule/ui and no custom renderer — can't render
-      if (typeof console !== 'undefined') {
-        console.warn(
-          '[ScaleMule] NotificationsViewport: Install @scalemule/ui or provide renderToast prop'
-        )
-      }
-      return null
-    }
-
-    // Custom render path — simple fixed container
-    const content = (
-      <div
-        style={{
-          position: 'fixed',
-          [position.includes('top') ? 'top' : 'bottom']: '16px',
-          [position.includes('right') ? 'right' : 'left']: '16px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '8px',
-          zIndex: 99999,
-        }}
-      >
-        {visibleToasts.map((toast) =>
-          renderToast(toast, { dismiss: () => dismissToast(toast.id) })
-        )}
-      </div>
-    )
-
-    if (typeof document !== 'undefined') {
-      return createPortal(content, document.body)
-    }
-    return content
-  }
-
-  // Default path — use @scalemule/ui NotificationContainer
   const content = (
-    <NotificationContainer
-      toasts={visibleToasts}
-      onDismiss={dismissToast}
-      onAction={onAction}
-      position={position}
-      autoHideDuration={autoHideDuration}
-      classNames={classNames}
-      toastClassNames={toastClassNames}
-    />
+    <div
+      style={{
+        position: 'fixed',
+        display: 'flex',
+        flexDirection: position.startsWith('bottom') ? 'column-reverse' : 'column',
+        gap: 8,
+        zIndex: 99999,
+        pointerEvents: 'none',
+        maxHeight: 'calc(100vh - 32px)',
+        overflow: 'hidden',
+        ...positionStyles[position]
+      }}
+    >
+      {visibleToasts.map((toast) => (
+        <div key={toast.id} style={{ pointerEvents: 'auto' }}>
+          {renderToast
+            ? renderToast(toast, { dismiss: () => dismissToast(toast.id) })
+            : <DefaultToast toast={toast} onDismiss={() => dismissToast(toast.id)} onAction={onAction} />
+          }
+        </div>
+      ))}
+    </div>
   )
 
   if (typeof document !== 'undefined') {
