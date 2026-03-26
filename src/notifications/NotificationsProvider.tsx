@@ -172,7 +172,10 @@ export function NotificationsProvider({
     }
 
     // Subscribe to private notification channel
-    const privateChannel = `private:${appId}:${userId}`
+    // Server uses hex-encoded UUIDs (no dashes, lowercase) for channel names
+    const appIdHex = appId.replace(/-/g, '').toLowerCase()
+    const userIdHex = userId.replace(/-/g, '').toLowerCase()
+    const privateChannel = `private:${appIdHex}:${userIdHex}`
     const unsub = client.realtime.subscribe(privateChannel, handleRealtimeMessage)
     unsubRef.current = unsub
 
