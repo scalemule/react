@@ -26,6 +26,20 @@ export type { UseFeatureFlagsOptions, UseFeatureFlagsReturn } from './hooks/useF
 export { usePushNotifications } from './hooks/usePushNotifications'
 export type { UsePushNotificationsOptions, UsePushNotificationsReturn } from './hooks/usePushNotifications'
 
+// Notification system
+export {
+  NotificationsProvider,
+  useNotifications,
+  useNotificationsContext,
+  NotificationsViewport,
+} from './notifications'
+export type {
+  NotificationsContextValue,
+  ToastItem,
+  UseNotificationsReturn,
+  NotificationsViewportProps,
+} from './notifications'
+
 // Types
 export type {
   User,

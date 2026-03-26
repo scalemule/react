@@ -135,7 +135,9 @@ export function useRealtime(options?: UseRealtimeOptions): UseRealtimeReturn {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, channelSignature])
 
-  // Cleanup on unmount
+  // Cleanup on unmount — unsubscribe channels but do NOT disconnect the shared
+  // RealtimeService singleton. Other hooks (useNotifications, etc.) may still
+  // need the connection. disconnect() is an explicit user action only.
   useEffect(() => {
     return () => {
       for (const unsub of manualUnsubscribesRef.current) {
@@ -147,9 +149,8 @@ export function useRealtime(options?: UseRealtimeOptions): UseRealtimeReturn {
         unsub()
       }
       autoUnsubscribesRef.current = []
-      disconnect()
     }
-  }, [disconnect])
+  }, [])
 
   return { status, lastMessage, disconnect, subscribe, publish }
 }

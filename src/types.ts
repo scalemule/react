@@ -33,6 +33,8 @@ export interface AuthState {
 export interface ScaleMuleConfig {
   /** API key (publishable key for browser, secret key for server) */
   apiKey: string
+  /** Application ID — required for realtime features (WebSocket auth, notifications) */
+  applicationId?: string
   /** Base URL for API requests. Overrides environment preset. */
   baseUrl?: string
   /** Environment preset. Defaults to 'prod'. */
@@ -69,6 +71,7 @@ export interface PhoneOtpRequest {
 export function toBaseConfig(config: ScaleMuleConfig): BaseConfig {
   return {
     apiKey: config.apiKey,
+    applicationId: config.applicationId,
     baseUrl: config.baseUrl,
     environment: config.environment,
     timeout: config.timeout,
