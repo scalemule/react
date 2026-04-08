@@ -47,6 +47,10 @@ export interface ScaleMuleConfig {
   enableRateLimitQueue?: boolean
   /** Enable offline queue — queues requests when offline, syncs on reconnect */
   enableOfflineQueue?: boolean
+  /** Enable the account switcher — remembers which accounts logged in on this device */
+  enableAccountSwitcher?: boolean
+  /** Privacy level for the account switcher ('full' | 'masked' | 'minimal'). Default: 'full' */
+  accountSwitcherPrivacy?: 'full' | 'masked' | 'minimal'
 }
 
 export interface LoginCredentials {
@@ -78,5 +82,7 @@ export function toBaseConfig(config: ScaleMuleConfig): BaseConfig {
     debug: config.debug,
     enableRateLimitQueue: config.enableRateLimitQueue,
     enableOfflineQueue: config.enableOfflineQueue,
+    enableAccountSwitcher: config.enableAccountSwitcher,
+    accountSwitcherPrivacy: config.accountSwitcherPrivacy,
   }
 }
