@@ -21,6 +21,8 @@ export { useData } from './hooks/useData'
 export { useStorage } from './hooks/useStorage'
 export { useChat } from './hooks/useChat'
 export { useRealtime } from './hooks/useRealtime'
+export { useAccountSwitcher } from './hooks/useAccountSwitcher'
+export type { UseAccountSwitcherReturn } from './hooks/useAccountSwitcher'
 export { useFeatureFlags } from './hooks/useFeatureFlags'
 export type { UseFeatureFlagsOptions, UseFeatureFlagsReturn } from './hooks/useFeatureFlags'
 export { usePushNotifications } from './hooks/usePushNotifications'
@@ -74,6 +76,9 @@ export type {
   TargetingRule,
   FlagVariant,
   FlagSegment,
+  KnownAccount,
+  KnownAccountDisplay,
+  AccountSwitcherPrivacy,
 } from '@scalemule/sdk'
 
 // Re-export the base SDK for advanced usage
