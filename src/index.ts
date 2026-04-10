@@ -20,6 +20,7 @@ export { useLoginHistory } from './hooks/useLoginHistory'
 export { useData } from './hooks/useData'
 export { useStorage } from './hooks/useStorage'
 export { useChat } from './hooks/useChat'
+export { useConference } from './hooks/useConference'
 export { useRealtime } from './hooks/useRealtime'
 export { useAccountSwitcher } from './hooks/useAccountSwitcher'
 export type { UseAccountSwitcherReturn } from './hooks/useAccountSwitcher'
@@ -79,6 +80,11 @@ export type {
   KnownAccount,
   KnownAccountDisplay,
   AccountSwitcherPrivacy,
+  CallSession,
+  CallParticipant,
+  JoinCallResponse,
+  ConferenceSettings,
+  WebrtcStats,
 } from '@scalemule/sdk'
 
 // Re-export the base SDK for advanced usage
