@@ -1,6 +1,6 @@
 {
   "name": "@scalemule/react",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "description": "Official React hooks and components for ScaleMule Backend-as-a-Service",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
