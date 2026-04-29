@@ -21,6 +21,7 @@ export type Device = DeviceInfo
 export interface AuthState {
   user: User | null
   isLoading: boolean
+  isRefreshing: boolean
   isAuthenticated: boolean
   error: ApiError | null
 }
@@ -51,6 +52,12 @@ export interface ScaleMuleConfig {
   enableAccountSwitcher?: boolean
   /** Privacy level for the account switcher ('full' | 'masked' | 'minimal'). Default: 'full' */
   accountSwitcherPrivacy?: 'full' | 'masked' | 'minimal'
+  /** Callback when a 401 auto-refresh starts */
+  onRefreshStart?: () => void
+  /** Callback when a 401 auto-refresh finishes */
+  onRefreshEnd?: () => void
+  /** Callback when a 401 auto-refresh fails */
+  onAutoRefreshFailed?: (error: ApiError) => void
 }
 
 export interface LoginCredentials {
@@ -84,5 +91,8 @@ export function toBaseConfig(config: ScaleMuleConfig): BaseConfig {
     enableOfflineQueue: config.enableOfflineQueue,
     enableAccountSwitcher: config.enableAccountSwitcher,
     accountSwitcherPrivacy: config.accountSwitcherPrivacy,
+    onRefreshStart: config.onRefreshStart,
+    onRefreshEnd: config.onRefreshEnd,
+    onAutoRefreshFailed: config.onAutoRefreshFailed,
   }
 }

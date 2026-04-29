@@ -52,10 +52,28 @@ export function ScaleMuleProvider({
   initialToken,
   onAuthChange,
 }: ScaleMuleProviderProps) {
-  const [client] = useState(() => new ScaleMule(toBaseConfig(config)))
+  const [client] = useState(() => {
+    const baseConfig = toBaseConfig(config)
+    return new ScaleMule({
+      ...baseConfig,
+      onRefreshStart: () => {
+        setAuth((prev) => ({ ...prev, isRefreshing: true }))
+        config.onRefreshStart?.()
+      },
+      onRefreshEnd: () => {
+        setAuth((prev) => ({ ...prev, isRefreshing: false }))
+        config.onRefreshEnd?.()
+      },
+      onAutoRefreshFailed: (error) => {
+        setAuth({ user: null, isLoading: false, isRefreshing: false, isAuthenticated: false, error })
+        config.onAutoRefreshFailed?.(error)
+      },
+    })
+  })
   const [auth, setAuth] = useState<AuthState>({
     user: null,
     isLoading: !!initialToken,
+    isRefreshing: false,
     isAuthenticated: false,
     error: null,
   })
@@ -69,9 +87,9 @@ export function ScaleMuleProvider({
     setAuth((prev) => ({ ...prev, isLoading: true, error: null }))
     const response = await client.auth.me()
     if (response.error) {
-      setAuth({ user: null, isLoading: false, isAuthenticated: false, error: response.error })
+      setAuth({ user: null, isLoading: false, isRefreshing: false, isAuthenticated: false, error: response.error })
     } else {
-      setAuth({ user: response.data as User, isLoading: false, isAuthenticated: true, error: null })
+      setAuth({ user: response.data as User, isLoading: false, isRefreshing: false, isAuthenticated: true, error: null })
     }
   }, [client])
 
@@ -96,7 +114,7 @@ export function ScaleMuleProvider({
         client.setAccessToken(token)
       }
       const user = (data?.user || data) as User
-      setAuth({ user, isLoading: false, isAuthenticated: true, error: null })
+      setAuth({ user, isLoading: false, isRefreshing: false, isAuthenticated: true, error: null })
       return user
     },
     [client]
@@ -116,7 +134,7 @@ export function ScaleMuleProvider({
         client.setAccessToken(token)
       }
       const user = (data?.user || data) as User
-      setAuth({ user, isLoading: false, isAuthenticated: true, error: null })
+      setAuth({ user, isLoading: false, isRefreshing: false, isAuthenticated: true, error: null })
       return user
     },
     [client]
@@ -126,7 +144,7 @@ export function ScaleMuleProvider({
     setAuth((prev) => ({ ...prev, isLoading: true }))
     await client.auth.logout()
     client.clearAccessToken()
-    setAuth({ user: null, isLoading: false, isAuthenticated: false, error: null })
+    setAuth({ user: null, isLoading: false, isRefreshing: false, isAuthenticated: false, error: null })
   }, [client])
 
   const signInWithOtp = useCallback(
@@ -156,7 +174,7 @@ export function ScaleMuleProvider({
         client.setAccessToken(token)
       }
       const user = (session?.user || session) as User
-      setAuth({ user, isLoading: false, isAuthenticated: true, error: null })
+      setAuth({ user, isLoading: false, isRefreshing: false, isAuthenticated: true, error: null })
       return user
     },
     [client]
@@ -189,7 +207,7 @@ export function ScaleMuleProvider({
         client.setAccessToken(token)
       }
       const user = session.user as User
-      setAuth({ user, isLoading: false, isAuthenticated: true, error: null })
+      setAuth({ user, isLoading: false, isRefreshing: false, isAuthenticated: true, error: null })
       return user
     },
     [client]
@@ -204,7 +222,7 @@ export function ScaleMuleProvider({
 
   const clearAccessToken = useCallback(() => {
     client.clearAccessToken()
-    setAuth({ user: null, isLoading: false, isAuthenticated: false, error: null })
+    setAuth({ user: null, isLoading: false, isRefreshing: false, isAuthenticated: false, error: null })
   }, [client])
 
   const value: ScaleMuleContextValue = {
