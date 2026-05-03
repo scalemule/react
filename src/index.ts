@@ -28,6 +28,12 @@ export { useFeatureFlags } from './hooks/useFeatureFlags'
 export type { UseFeatureFlagsOptions, UseFeatureFlagsReturn } from './hooks/useFeatureFlags'
 export { usePushNotifications } from './hooks/usePushNotifications'
 export type { UsePushNotificationsOptions, UsePushNotificationsReturn } from './hooks/usePushNotifications'
+export { useVote } from './hooks/useVote'
+export type { UseVoteOptions, UseVoteReturn } from './hooks/useVote'
+
+// Components
+export { VoteButton } from './components/VoteButton'
+export type { VoteButtonProps, VoteButtonClassNames } from './components/VoteButton'
 
 // Notification system
 export {
