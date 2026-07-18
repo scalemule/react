@@ -34,6 +34,8 @@ export type { UseVoteOptions, UseVoteReturn } from './hooks/useVote'
 // Components
 export { VoteButton } from './components/VoteButton'
 export type { VoteButtonProps, VoteButtonClassNames } from './components/VoteButton'
+export { ContactSalesForm } from './components/ContactSalesForm'
+export type { ContactSalesFormProps } from './components/ContactSalesForm'
 
 // Notification system
 export {
