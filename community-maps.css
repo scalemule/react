@@ -434,6 +434,8 @@
 @media(max-width:800px){.smca-toolbar{flex-wrap:wrap}.smca-communities{flex-basis:100%}.smcm .smca .smca-city-toggle{margin-left:0}.smca-modes{margin-left:auto}}
 @media(max-width:600px){.smca-toolbar{flex-direction:row;align-items:center}.smcm .smca .smca-city-toggle{font-size:.68rem}}
 
+.smcm .smcm-form fieldset, .smcm .smcm-form label, .smcm .smcm-form input, .smcm .smcm-form textarea { min-inline-size: 0; max-inline-size: 100%; }
+.smcm .smcm-form legend { max-inline-size: 100%; white-space: normal; overflow-wrap: anywhere; }
 .smcm .smcm-permission, .smcm .smcm-media-fields { border: 1px solid #d7d2c6; border-radius: 10px; padding: 1rem; margin: 1rem 0; display: grid; gap: .8rem; }
 .smcm .smcm-permission legend, .smcm .smcm-media-fields legend { font-weight: 700; padding: 0 .4rem; }
 .smcm .smcm-permission p { font-size: .92rem; line-height: 1.6; }
