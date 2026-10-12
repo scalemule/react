@@ -1,5 +1,8 @@
 import type {
   CommunityMapsService,
+  CommunityMapVote,
+  CommunityMapCommentPage,
+  CommunityMapCommentInput,
   CommunityMapCollection,
   CommunityMapFeature,
   CommunityMapFeatureQuery,
@@ -10,6 +13,23 @@ import type {
   RequestOptions,
 } from "@scalemule/sdk";
 export interface CommunityMapsClient {
+  getVote?(
+    slug: string,
+    id: string,
+    signal?: AbortSignal,
+  ): Promise<CommunityMapVote>;
+  vote?(slug: string, id: string, value: -1 | 0 | 1): Promise<CommunityMapVote>;
+  comments?(
+    slug: string,
+    featureId?: string,
+    page?: number,
+    signal?: AbortSignal,
+  ): Promise<CommunityMapCommentPage>;
+  comment?(
+    slug: string,
+    input: CommunityMapCommentInput,
+    featureId?: string,
+  ): Promise<{ id: string; status: "pending" }>;
   collection(
     slug: string,
     signal?: AbortSignal,
@@ -67,6 +87,15 @@ export function communityMapsSdkClient(
     return r.data;
   };
   return {
+    getVote: (s, id, signal) =>
+      unwrap(service.getVote(s, id, { ...options, signal })),
+    vote: (s, id, value) => unwrap(service.vote(s, id, value, options)),
+    comments: (s, feature_id, page, signal) =>
+      unwrap(
+        service.listComments(s, { feature_id, page }, { ...options, signal }),
+      ),
+    comment: (s, input, featureId) =>
+      unwrap(service.createComment(s, input, featureId, options)),
     collection: (s, signal) =>
       unwrap(service.getCollection(s, { ...options, signal })),
     features: (s, q, signal) =>
@@ -119,7 +148,28 @@ export function createCommunityMapsBrowserClient(
       );
     return result.data as T;
   }
+  const commentsPath = (s: string, featureId?: string, page?: number) => {
+    const query = new URLSearchParams();
+    if (featureId) query.set("feature_id", featureId);
+    if (page) query.set("page", String(page));
+    return `${path(s)}/comments?${query}`;
+  };
   return {
+    getVote: (s, id, signal) =>
+      request(
+        `${path(s)}/features/${encodeURIComponent(id)}/vote`,
+        "GET",
+        undefined,
+        signal,
+      ),
+    vote: (s, id, value) =>
+      request(`${path(s)}/features/${encodeURIComponent(id)}/vote`, "POST", {
+        value,
+      }),
+    comments: (s, featureId, page, signal) =>
+      request(commentsPath(s, featureId, page), "GET", undefined, signal),
+    comment: (s, input, featureId) =>
+      request(commentsPath(s, featureId), "POST", input),
     collection: (s, signal) => request(path(s), "GET", undefined, signal),
     features: (s, q = {}, signal) => {
       const query = new URLSearchParams();

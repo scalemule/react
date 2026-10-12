@@ -26,6 +26,7 @@ import {
 import type { CommunityMapSubmissionPolicy } from "@scalemule/sdk";
 import type { CommunityMapsClient } from "./client";
 import { CommunityMap, type CommunityMapProvider } from "./map";
+import { CommunityVote, CommunityDiscussion } from "./engagement";
 const message = (error: unknown) =>
   error instanceof Error ? error.message : "Please try again.";
 export interface CommunityTheme {
@@ -58,10 +59,16 @@ export function CommunityFeatureCard({
   feature,
   href,
   photoUrl,
+  client,
+  collection,
+  signInHref,
 }: {
   feature: CommunityMapFeature;
   href: string;
   photoUrl?: string;
+  client?: CommunityMapsClient;
+  collection?: CommunityMapCollection;
+  signInHref?: string;
 }) {
   return (
     <article className="smcm-feature-card">
@@ -85,6 +92,21 @@ export function CommunityFeatureCard({
           <a href={href}>{feature.content.title}</a>
         </h3>
         <p>{feature.content.description}</p>
+        {client && collection?.config.voting_enabled && (
+          <CommunityVote
+            key={feature.id}
+            client={client}
+            slug={collection.slug}
+            featureId={feature.id}
+            signInHref={signInHref}
+            compact
+          />
+        )}
+        {collection?.config.comments_enabled && (
+          <p>
+            <a href={`${href}#comments`}>Join the conversation</a>
+          </p>
+        )}
         <div className="smcm-feature-meta">
           <span>
             {feature.content.geometry.type === "Point"
@@ -323,7 +345,10 @@ export function CommunitySubmissionForm({
       },
     };
     try {
-      if (!input.consent.accepted) throw new Error("Agree to the publication permission before submitting.");
+      if (!input.consent.accepted)
+        throw new Error(
+          "Agree to the publication permission before submitting.",
+        );
       validateCommunityMedia(attachments);
       const r = await client.submit(collection.slug, {
         ...input,
@@ -579,11 +604,13 @@ export function CommunityFeatureDetail({
   collection,
   feature,
   correctionHref,
+  signInHref,
 }: {
   client: CommunityMapsClient;
   collection: CommunityMapCollection;
   feature: CommunityMapFeature;
   correctionHref?: string;
+  signInHref?: string;
 }) {
   const c = feature.content;
   return (
@@ -666,6 +693,15 @@ export function CommunityFeatureDetail({
           </figure>
         ))}
       </div>
+      {collection.config.voting_enabled && (
+        <CommunityVote
+          key={`vote-${feature.id}`}
+          client={client}
+          slug={collection.slug}
+          featureId={feature.id}
+          signInHref={signInHref}
+        />
+      )}
       <CommunityReaction
         key={feature.id}
         client={client}
@@ -708,6 +744,15 @@ export function CommunityFeatureDetail({
           <a href={correctionHref}>Suggest an update</a>
         </p>
       )}
+      <div id="comments">
+        <CommunityDiscussion
+          key={`comments-${feature.id}`}
+          client={client}
+          collection={collection}
+          featureId={feature.id}
+          title="Comments on this place"
+        />
+      </div>
       <details>
         <summary>Report a problem or request removal</summary>
         <CommunityReportForm
@@ -731,6 +776,7 @@ export interface CommunityGuideProps {
   mapProvider?: CommunityMapProvider;
   intro?: ReactNode;
   showMap?: boolean;
+  signInHref?: (feature: CommunityMapFeature) => string;
 }
 export function CommunityGuide({
   client,
@@ -744,6 +790,7 @@ export function CommunityGuide({
   mapProvider,
   intro,
   showMap = true,
+  signInHref,
 }: CommunityGuideProps) {
   const [area, setArea] = useState(initialAreaId);
   const [category, setCategory] = useState("");
@@ -931,6 +978,9 @@ export function CommunityGuide({
             <CommunityFeatureCard
               key={f.id}
               feature={f}
+              client={client}
+              collection={collection}
+              signInHref={signInHref?.(f)}
               href={featureHref(f)}
               photoUrl={
                 f.media.find(

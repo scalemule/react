@@ -443,3 +443,17 @@
 .smcm .smcm-permission .smcm-check { display: flex; flex-direction: row; align-items: flex-start; gap: .6rem; }
 .smcm .smcm-permission input[type=checkbox] { width: 20px; height: 20px; min-height: 20px; margin-top: .2rem; padding: 0; flex-shrink: 0; }
 .smcm .smcm-photos video, .smcm .smcm-photos audio { width: 100%; max-height: 32rem; }
+
+/* Reader votes share publication typography; arrows remain usable on small screens. */
+.smcm-voting { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin-block: 1rem; }
+.smcm-vote-controls { display: inline-flex; align-items: center; border: 1px solid currentColor; border-radius: 1.5rem; overflow: hidden; }
+.smcm-vote-controls button { min-width: 44px; min-height: 44px; padding: .25rem .6rem; border: 0; background: transparent; font-family: inherit; font-weight: 700; font-size: 1.45rem; line-height: 1; cursor: pointer; }
+.smcm-vote-controls button:disabled { cursor: default; opacity: .5; }
+.smcm-vote-controls button[aria-pressed="true"] { background: var(--smcm-accent, #9a3b10); color: white; opacity: 1; }
+.smcm-vote-controls .smcm-vote-down[aria-pressed="true"] { background: #295276; }
+.smcm-vote-controls output { min-width: 2.5ch; text-align: center; padding-inline: .3rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.smcm-vote-description { display: flex; flex-direction: column; gap: .2rem; font-size: .875rem; }
+.smcm-discussion { margin-block: 2rem; border-top: 1px solid #d7dcd7; padding-top: 1.5rem; max-width: 74ch; }
+.smcm-discussion .smcm-form { margin-top: 1.5rem; }
+.smcm-comment-notice { padding: 1rem; border-left: 3px solid var(--smcm-accent, #9a3b10); }
+.smcm-voting button:focus-visible, .smcm-discussion button:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
