@@ -1,4 +1,5 @@
 "use client";
+import { CommunityVote } from "./engagement";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   CommunityMapCollection,
@@ -393,12 +394,14 @@ export function CommunityCityGuide({
   atlas,
   submitHref,
   featureHref,
+  signInHref,
   communityHref,
 }: {
   client: CommunityMapsClient;
   collection: CommunityMapCollection;
   atlas: CommunityCityAtlasConfig;
   submitHref: string;
+  signInHref?: (feature: CommunityMapFeature) => string;
   featureHref: (feature: CommunityMapFeature) => string;
   communityHref: (areaId: string) => string;
 }) {
@@ -585,6 +588,16 @@ export function CommunityCityGuide({
                 {selectedStreet.features.map((f) => (
                   <li key={f.id}>
                     <a href={featureHref(f)}>{f.content.title}</a>
+                    {collection.config.voting_enabled && (
+                      <CommunityVote
+                        key={f.id}
+                        client={client}
+                        slug={collection.slug}
+                        featureId={f.id}
+                        signInHref={signInHref?.(f)}
+                        compact
+                      />
+                    )}
                   </li>
                 ))}
               </ul>
@@ -682,6 +695,16 @@ export function CommunityCityGuide({
             {features.map((f) => (
               <li key={f.id}>
                 <a href={featureHref(f)}>{f.content.title}</a>
+                {collection.config.voting_enabled && (
+                  <CommunityVote
+                    key={f.id}
+                    client={client}
+                    slug={collection.slug}
+                    featureId={f.id}
+                    signInHref={signInHref?.(f)}
+                    compact
+                  />
+                )}
               </li>
             ))}
           </ul>
