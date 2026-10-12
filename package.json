@@ -1,6 +1,6 @@
 {
   "name": "@scalemule/react",
-  "version": "0.0.12",
+  "version": "0.0.13",
   "description": "Official React hooks and components for ScaleMule Backend-as-a-Service",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -10,15 +10,23 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.js"
-    }
+    },
+    "./community-maps": {
+      "types": "./dist/community-maps/index.d.ts",
+      "import": "./dist/community-maps/index.mjs",
+      "require": "./dist/community-maps/index.js"
+    },
+    "./community-maps.css": "./community-maps.css"
   },
   "files": [
     "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "community-maps.css",
+    "scripts/community-map-assets.mjs"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --dts --clean --external react --external @scalemule/sdk",
+    "build": "tsup && node scripts/mark-community-maps-client.mjs",
     "dev": "tsup src/index.ts --format cjs,esm --dts --watch --external react --external @scalemule/sdk",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -49,17 +57,17 @@
     "url": "https://github.com/scalemule/react/issues"
   },
   "peerDependencies": {
-    "@scalemule/sdk": "^0.0.61",
+    "@scalemule/sdk": ">=0.0.71 <0.1.0",
     "react": ">=17.0.0",
     "react-dom": ">=17.0.0"
   },
   "devDependencies": {
-    "@scalemule/sdk": "^0.0.48",
+    "@scalemule/sdk": "^0.0.71",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/react": "^18.2.0",
-    "@types/react-dom": "^19.2.3",
+    "@types/react-dom": "^18.3.7",
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
     "eslint": "^8.54.0",
@@ -78,5 +86,11 @@
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
+  },
+  "dependencies": {
+    "maplibre-gl": "^6.14.0"
+  },
+  "bin": {
+    "scalemule-community-map-assets": "scripts/community-map-assets.mjs"
   }
 }
