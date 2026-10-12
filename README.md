@@ -125,3 +125,25 @@ export function AdvancedUsage() {
 ## License
 
 MIT
+
+## Community Maps
+
+Import reusable components from `@scalemule/react/community-maps` and include
+`@scalemule/react/community-maps.css`. Components inherit your application's typography
+and support an accent/theme. The main exports include CommunityMap, CommunityGuide,
+CommunityCards, CommunityFeatureCard, CommunityFeatureDetail, CommunitySubmissionForm,
+CommunityPhotoSubmission, CommunityReaction, CommunityReportForm, FeaturedAttractions,
+and FeaturedStreets.
+
+For the default MapLibre adapter, run `scalemule-community-map-assets` before your
+framework build. It copies the installed MapLibre worker into
+`public/_scalemule/community-maps/`. Serve this directory as static assets. The CLI
+uses the installed library version and must run again when dependencies change.
+Configure `collection.config.presentation.map_style_url` with a production tile style;
+there is deliberately no public OpenStreetMap tile default. Preserve provider attribution.
+A different renderer can implement CommunityMapProvider. GeoJSON remains vendor independent.
+
+`createCommunityMapsBrowserClient('/api/community-maps')` uses your same-origin proxy.
+`communityMapsSdkClient(service, mediaUrl, requestOptions)` adapts an authenticated SDK.
+Never initialize a browser component with a server API key. Missing WebGL or map tiles
+leaves the accessible feature cards, filters, and contribution forms available.
