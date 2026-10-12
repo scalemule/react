@@ -43,7 +43,12 @@ export interface CommunityMapsClient {
     slug: string,
     submission: string,
     file: File,
-    fields: { caption: string; attribution: string; rights_confirmed: boolean },
+    fields: {
+      caption: string;
+      attribution: string;
+      rights_confirmed: boolean;
+      consent_version: string;
+    },
   ): Promise<{ id: string }>;
   mediaUrl(slug: string, id: string): string;
 }
@@ -72,7 +77,7 @@ export function communityMapsSdkClient(
     react: (s, id, r, a) => unwrap(service.react(s, id, r, a, options)),
     report: (s, id, d) => unwrap(service.report(s, id, d, options)),
     upload: (s, id, file, fields) =>
-      unwrap(service.uploadPhoto(s, id, file, fields, options)),
+      unwrap(service.uploadMedia(s, id, file, fields, options)),
     mediaUrl,
   };
 }
