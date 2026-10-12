@@ -17,6 +17,13 @@ import type {
   CommunityMapReportReason,
   CommunityMapProposal,
 } from "@scalemule/sdk";
+import {
+  CommunityMediaFields,
+  CommunityMediaSubmission,
+  PublicationPermission,
+  validateCommunityMedia,
+} from "./submission-media";
+import type { CommunityMapSubmissionPolicy } from "@scalemule/sdk";
 import type { CommunityMapsClient } from "./client";
 import { CommunityMap, type CommunityMapProvider } from "./map";
 const message = (error: unknown) =>
@@ -62,7 +69,11 @@ export function CommunityFeatureCard({
         <img
           loading="lazy"
           src={photoUrl}
-          alt={feature.media[0]?.caption || feature.content.title}
+          alt={
+            feature.media.find(
+              (m) => !m.content_type || m.content_type.startsWith("image/"),
+            )?.caption || feature.content.title
+          }
         />
       )}
       <div className="smcm-feature-copy">
@@ -109,7 +120,17 @@ export function FeaturedAttractions({
             feature={f}
             href={href(f)}
             photoUrl={
-              f.media[0] ? client.mediaUrl(slug, f.media[0].id) : undefined
+              f.media.find(
+                (m) => !m.content_type || m.content_type.startsWith("image/"),
+              )
+                ? client.mediaUrl(
+                    slug,
+                    f.media.find(
+                      (m) =>
+                        !m.content_type || m.content_type.startsWith("image/"),
+                    )!.id,
+                  )
+                : undefined
             }
           />
         ))}
@@ -137,7 +158,17 @@ export function FeaturedStreets({
             feature={f}
             href={href(f)}
             photoUrl={
-              f.media[0] ? client.mediaUrl(slug, f.media[0].id) : undefined
+              f.media.find(
+                (m) => !m.content_type || m.content_type.startsWith("image/"),
+              )
+                ? client.mediaUrl(
+                    slug,
+                    f.media.find(
+                      (m) =>
+                        !m.content_type || m.content_type.startsWith("image/"),
+                    )!.id,
+                  )
+                : undefined
             }
           />
         ))}
@@ -202,77 +233,34 @@ function useRequestKey() {
     return last.current.key;
   };
 }
-export function CommunityPhotoSubmission({
-  client,
-  slug,
-  submission,
-}: {
+/** @deprecated Use CommunityMediaSubmission for photos, video and audio. */
+export function CommunityPhotoSubmission(props: {
   client: CommunityMapsClient;
   slug: string;
   submission: string;
+  policy?: CommunityMapSubmissionPolicy;
 }) {
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState("");
+  const [policy, setPolicy] = useState(props.policy);
   const [error, setError] = useState("");
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const file = data.get("photo");
-    if (!(file instanceof File) || file.size === 0) return;
-    setBusy(true);
-    setError("");
-    setStatus("");
-    try {
-      if (file.size > 8 * 1024 * 1024)
-        throw new Error("Choose a photo smaller than 8 MiB.");
-      await client.upload(slug, submission, file, {
-        caption: String(data.get("caption") || ""),
-        attribution: String(data.get("attribution") || ""),
-        rights_confirmed: data.get("rights") === "on",
+  useEffect(() => {
+    if (props.policy) return;
+    let closed = false;
+    props.client
+      .collection(props.slug)
+      .then((c) => {
+        if (!closed) setPolicy(c.submission_policy);
+      })
+      .catch((e) => {
+        if (!closed) setError(message(e));
       });
-      form.reset();
-      setStatus("Photo received. An editor will review it before publication.");
-    } catch (e) {
-      setError(message(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <form className="smcm-form" onSubmit={submit}>
-      <h3>Add a photo</h3>
-      <label>
-        Photo (JPEG, PNG, or WebP; up to 8 MiB)
-        <input
-          type="file"
-          name="photo"
-          accept="image/jpeg,image/png,image/webp"
-          required
-        />
-      </label>
-      <label>
-        Caption
-        <textarea name="caption" maxLength={1000} />
-      </label>
-      <label>
-        Photo credit
-        <input name="attribution" maxLength={500} />
-      </label>
-      <label className="smcm-check">
-        <input name="rights" type="checkbox" required /> I took this photo or
-        have permission to contribute it.
-      </label>
-      <p className="smcm-help">
-        Avoid identifiable people, license plates, and private house numbers.
-        Location metadata is removed during processing.
-      </p>
-      <button disabled={busy}>
-        {busy ? "Uploading…" : "Submit photo for review"}
-      </button>
-      {status && <p role="status">{status}</p>}
-      {error && <p role="alert">{error}</p>}
-    </form>
+    return () => {
+      closed = true;
+    };
+  }, [props.client, props.slug, props.policy]);
+  return policy ? (
+    <CommunityMediaSubmission {...props} policy={policy} />
+  ) : (
+    <p role="status">{error || "Loading publication permission…"}</p>
   );
 }
 export function CommunitySubmissionForm({
@@ -280,16 +268,28 @@ export function CommunitySubmissionForm({
   collection,
   initialAreaId,
   correctionFor,
+  guidelinesHref,
+  termsHref,
 }: {
   client: CommunityMapsClient;
   collection: CommunityMapCollection;
   initialAreaId?: string;
   correctionFor?: string;
+  guidelinesHref?: string;
+  termsHref?: string;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [receipt, setReceipt] = useState<string | null>(null);
   const key = useRequestKey();
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [retry, setRetry] = useState({
+    files: [] as File[],
+    caption: "",
+    attribution: "",
+    message: "",
+  });
+  const policy = collection.submission_policy;
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -309,11 +309,48 @@ export function CommunitySubmissionForm({
       hours: field("hours") || null,
       correction_for: correctionFor || null,
     };
-    const input = { area_id: field("area"), proposal };
+    if (!policy) {
+      setBusy(false);
+      setError("Reload the guide to read the current publication permission.");
+      return;
+    }
+    const input = {
+      area_id: field("area"),
+      proposal,
+      consent: {
+        version: policy.version,
+        accepted: data.get("rights") === "on",
+      },
+    };
     try {
+      if (!input.consent.accepted) throw new Error("Agree to the publication permission before submitting.");
+      validateCommunityMedia(attachments);
       const r = await client.submit(collection.slug, {
         ...input,
         idempotency_key: key(input),
+      });
+      let received = 0;
+      let uploadMessage = "";
+      try {
+        for (const file of attachments) {
+          await client.upload(collection.slug, r.id, file, {
+            caption: field("caption"),
+            attribution: field("attribution"),
+            rights_confirmed: input.consent.accepted,
+            consent_version: policy.version,
+          });
+          received++;
+        }
+        if (received)
+          uploadMessage = `${received} attachment(s) received for editorial review.`;
+      } catch (error) {
+        uploadMessage = `${received} attachment(s) received. Remaining attachments need to be retried: ${message(error)}`;
+      }
+      setRetry({
+        files: attachments.slice(received),
+        caption: field("caption"),
+        attribution: field("attribution"),
+        message: uploadMessage,
       });
       setReceipt(r.id);
     } catch (e) {
@@ -322,18 +359,26 @@ export function CommunitySubmissionForm({
       setBusy(false);
     }
   }
-  if (receipt)
+  if (receipt && policy)
     return (
       <section className="smcm-submission-receipt">
         <h2>Thank you for contributing.</h2>
         <p role="status">
-          Your submission is with the editors. It will appear after review and
-          publication.
+          Your place was received. Editors will review it and each attachment
+          against the publication guidelines. Nothing is published
+          automatically.
         </p>
-        <CommunityPhotoSubmission
+        <CommunityMediaSubmission
           client={client}
           slug={collection.slug}
           submission={receipt}
+          policy={policy}
+          initialFiles={retry.files}
+          initialCaption={retry.caption}
+          initialAttribution={retry.attribution}
+          initialMessage={retry.message}
+          guidelinesHref={guidelinesHref}
+          termsHref={termsHref}
         />
       </section>
     );
@@ -430,9 +475,23 @@ export function CommunitySubmissionForm({
       </div>
       <p className="smcm-help">
         Provide an email if you would like editors to contact you with
-        questions. You can add photos after submitting.
+        questions. Your name and email stay private; use the public credit field
+        if you want attribution.
       </p>
-      <button disabled={busy || !collection.areas.length}>
+      <CommunityMediaFields onFiles={setAttachments} />
+      {policy ? (
+        <PublicationPermission
+          policy={policy}
+          guidelinesHref={guidelinesHref}
+          termsHref={termsHref}
+        />
+      ) : (
+        <p role="alert">
+          Publication permission is temporarily unavailable. Please reload
+          before submitting.
+        </p>
+      )}
+      <button disabled={busy || !collection.areas.length || !policy}>
         {busy ? "Submitting…" : "Send to the editors"}
       </button>
       {error && <p role="alert">{error}</p>}
@@ -443,7 +502,7 @@ const reportReasons: [CommunityMapReportReason, string][] = [
   ["no-longer-exists", "Display or place no longer exists"],
   ["incorrect-location", "Incorrect location"],
   ["incorrect-information", "Incorrect information"],
-  ["inappropriate-media", "Inappropriate photo"],
+  ["inappropriate-media", "Inappropriate photo, video or audio"],
   ["duplicate", "Duplicate place"],
   ["safety", "Safety concern"],
   ["privacy-removal", "Resident or property owner removal request"],
@@ -578,14 +637,31 @@ export function CommunityFeatureDetail({
       <div className="smcm-photos">
         {feature.media.map((m) => (
           <figure key={m.id}>
-            <img
-              src={client.mediaUrl(collection.slug, m.id)}
-              alt={m.caption || c.title}
-              loading="lazy"
-            />
+            {m.content_type?.startsWith("video/") ? (
+              <video
+                controls
+                playsInline
+                preload="metadata"
+                src={client.mediaUrl(collection.slug, m.id)}
+                aria-label={m.caption || c.title}
+              />
+            ) : m.content_type?.startsWith("audio/") ? (
+              <audio
+                controls
+                preload="metadata"
+                src={client.mediaUrl(collection.slug, m.id)}
+                aria-label={m.caption || c.title}
+              />
+            ) : (
+              <img
+                src={client.mediaUrl(collection.slug, m.id)}
+                alt={m.caption || c.title}
+                loading="lazy"
+              />
+            )}
             <figcaption>
               {m.caption}
-              {m.attribution && <span> Photo: {m.attribution}</span>}
+              {m.attribution && <span> Credit: {m.attribution}</span>}
             </figcaption>
           </figure>
         ))}
@@ -857,8 +933,17 @@ export function CommunityGuide({
               feature={f}
               href={featureHref(f)}
               photoUrl={
-                f.media[0]
-                  ? client.mediaUrl(collection.slug, f.media[0].id)
+                f.media.find(
+                  (m) => !m.content_type || m.content_type.startsWith("image/"),
+                )
+                  ? client.mediaUrl(
+                      collection.slug,
+                      f.media.find(
+                        (m) =>
+                          !m.content_type ||
+                          m.content_type.startsWith("image/"),
+                      )!.id,
+                    )
                   : undefined
               }
             />
