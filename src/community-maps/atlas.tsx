@@ -112,6 +112,7 @@ export function CommunityIllustratedMap({
         minZoom: 0,
         dragRotate: false,
         pitchWithRotate: false,
+        cooperativeGestures: true,
       });
       instance.current = map;
       map.addControl(
@@ -314,7 +315,8 @@ export function CommunityIllustratedMap({
     if (!ready) return;
     (
       instance.current?.getSource("street-activity") as
-        GeoJSONSource | undefined
+        | GeoJSONSource
+        | undefined
     )?.setData(communityStreetGeoJSON(geography, activity));
   }, [activity, geography, ready]);
   useEffect(() => {
@@ -410,6 +412,8 @@ export function CommunityCityGuide({
   const [loaded, setLoaded] = useState(false);
   const [cityOnly, setCityOnly] = useState(false);
   const [error, setError] = useState<string>();
+  const [retry, setRetry] = useState(0);
+  const selection = useRef<HTMLDivElement>(null);
   const [mode, setMode] = useState<"illustrated" | "practical">("illustrated");
   const [landmark, setLandmark] = useState<CommunityAtlasLandmark>();
   const [selectedStreet, setStreet] = useState<CommunityStreetActivity>();
@@ -455,7 +459,21 @@ export function CommunityCityGuide({
         setError(e instanceof Error ? e.message : "The guide could not load.");
     });
     return () => controller.abort();
-  }, [client, collection.slug, atlas.areaSlug, atlas.geographyUrl, areaId]);
+  }, [
+    client,
+    collection.slug,
+    atlas.areaSlug,
+    atlas.geographyUrl,
+    areaId,
+    retry,
+  ]);
+  useEffect(() => {
+    if (
+      (landmark || selectedStreet) &&
+      window.matchMedia("(max-width: 600px)").matches
+    )
+      selection.current?.scrollIntoView({ block: "nearest" });
+  }, [landmark, selectedStreet]);
   const streets = useMemo(
     () => (geography ? communityStreetActivity(geography, features) : []),
     [geography, features],
@@ -480,7 +498,7 @@ export function CommunityCityGuide({
         </div>
         {collection.config.submissions_open && (
           <a className="smca-submit" href={submitHref}>
-            ＋ Add a festive place
+            ＋ Share a street or place
           </a>
         )}
       </header>
@@ -530,8 +548,7 @@ export function CommunityCityGuide({
           <div className="smca-field-note">
             <span className="smca-small-cap">Your city, all together</span>
             <h2>
-              Follow the
-              <br />
+              Follow the <br />
               <em>festive streets.</em>
             </h2>
             <p>
@@ -567,7 +584,7 @@ export function CommunityCityGuide({
             private.
           </p>
           {landmark ? (
-            <div className="smca-selection" aria-live="polite">
+            <div ref={selection} className="smca-selection" aria-live="polite">
               <span className="smca-small-cap">A city landmark</span>
               <img src={artUrl(landmark)} alt="" width="74" height="74" />
               <h3>{landmark.name}</h3>
@@ -581,7 +598,7 @@ export function CommunityCityGuide({
               </button>
             </div>
           ) : selectedStreet ? (
-            <div className="smca-selection" aria-live="polite">
+            <div ref={selection} className="smca-selection" aria-live="polite">
               <span className="smca-small-cap">A festive street</span>
               <h3>{selectedStreet.name}</h3>
               <ul>
@@ -645,9 +662,19 @@ export function CommunityCityGuide({
           · <a href="https://openfreemap.org/">OpenFreeMap</a> / OpenMapTiles ·
           Census · Walk Bike Walnut Creek
         </span>
-        <span>Pan to wander · Scroll to zoom · ⌖ to come back</span>
+        <span>
+          Use two fingers to move the map on your phone · ⌖ to see the whole
+          city
+        </span>
       </div>
-      {error && <p role="alert">{error}</p>}
+      {error && (
+        <div role="alert">
+          <p>{error}</p>
+          <button type="button" onClick={() => setRetry((v) => v + 1)}>
+            Reload guide
+          </button>
+        </div>
+      )}
       <section
         className="smca-discover"
         aria-labelledby="smca-discover-heading"
@@ -665,7 +692,7 @@ export function CommunityCityGuide({
         </div>
         {collection.config.submissions_open && (
           <a className="smca-submit" href={submitHref}>
-            Share a place ↗
+            Share a street or place
           </a>
         )}
       </section>

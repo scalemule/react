@@ -35,6 +35,8 @@ export function CommunityStreetCapture({
 }) {
   const store = useRef<CaptureDraftStore>();
   const current = useRef<CaptureDraft>();
+  const committed = useRef<CaptureDraft>();
+  const storageFailed = useRef(false);
   const writes = useRef(Promise.resolve());
   const adding = useRef(Promise.resolve());
   const upload = useRef<AbortController>();
@@ -51,10 +53,15 @@ export function CommunityStreetCapture({
   const [reload, setReload] = useState(0);
   const [detailsOnly, setDetailsOnly] = useState(false);
   const [preview, setPreview] = useState<string>();
+  const [storageError, setStorageError] = useState("");
   const policy = collection.submission_policy;
   const pending = draft?.files.length || 0;
   useEffect(() => {
     alive.current = true;
+    storageFailed.current = false;
+    writes.current = Promise.resolve();
+    setStorageError("");
+    setDraft(undefined);
     const db = new CaptureDraftStore();
     store.current = db;
     let closed = false;
@@ -91,6 +98,7 @@ export function CommunityStreetCapture({
         return;
       }
       current.current = value;
+      committed.current = value;
       setDraft(value);
       setPersistent(saved);
       if (old?.files.length)
@@ -106,7 +114,10 @@ export function CommunityStreetCapture({
       alive.current = false;
       controller.abort();
       upload.current?.abort();
-      void writes.current.finally(() => db.close());
+      void writes.current.then(
+        () => db.close(),
+        () => db.close(),
+      );
     };
   }, [
     client,
@@ -125,11 +136,22 @@ export function CommunityStreetCapture({
     window.addEventListener("beforeunload", before);
     return () => window.removeEventListener("beforeunload", before);
   }, [pending]);
+  const draftReady = !!draft;
+  useEffect(() => {
+    if (draftReady && window.location.hash === "#my-submissions")
+      document
+        .getElementById("my-submissions")
+        ?.scrollIntoView({ block: "start" });
+  }, [draftReady]);
   function change(
     update: (d: CaptureDraft) => CaptureDraft,
     add?: { id: string; file: File },
     remove?: string,
   ) {
+    if (storageFailed.current)
+      return Promise.reject(
+        new Error("Reload your saved queue before continuing."),
+      );
     const value = {
       ...update(current.current!),
       updated: Date.now(),
@@ -137,10 +159,22 @@ export function CommunityStreetCapture({
     };
     current.current = value;
     if (alive.current) setDraft(value);
-    // Snapshot every mutation, in order. Storage failures block sending until retried.
-    const saved = writes.current
-      .catch(() => {})
-      .then(() => store.current!.save(value, add, remove));
+    // A failed transaction must not hide files or advance a receipt. Stop writes
+    // until reload: another tab may own a newer revision of this private queue.
+    const saved = writes.current.then(async () => {
+      try {
+        await store.current!.save(value, add, remove);
+        committed.current = value;
+      } catch (e) {
+        storageFailed.current = true;
+        current.current = committed.current;
+        if (alive.current) {
+          setDraft(committed.current);
+          setStorageError(message(e));
+        }
+        throw e;
+      }
+    });
     writes.current = saved;
     return saved;
   }
@@ -163,6 +197,7 @@ export function CommunityStreetCapture({
     );
   }
   function add(files: File[]) {
+    if (storageFailed.current) return;
     setPreparing(true);
     setError("");
     adding.current = adding.current
@@ -186,25 +221,16 @@ export function CommunityStreetCapture({
               "Send the files already queued before adding more. The queue is limited to 75 MiB.",
             );
           const id = crypto.randomUUID();
-          const previous = current.current!;
-          try {
-            await change(
-              (d) => ({
-                ...d,
-                files: [
-                  ...d.files,
-                  { id, name: file.name, size: file.size, type: file.type },
-                ],
-              }),
-              { id, file },
-            );
-          } catch {
-            current.current = previous;
-            setDraft(previous);
-            throw new Error(
-              "This device could not save the photo. Free some storage and select it again.",
-            );
-          }
+          await change(
+            (d) => ({
+              ...d,
+              files: [
+                ...d.files,
+                { id, name: file.name, size: file.size, type: file.type },
+              ],
+            }),
+            { id, file },
+          );
         }
       })
       .catch((e) => {
@@ -216,7 +242,8 @@ export function CommunityStreetCapture({
   }
   async function send(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busyRef.current || !policy || !current.current) return;
+    if (busyRef.current || storageFailed.current || !policy || !current.current)
+      return;
     if (new FormData(event.currentTarget).get("rights") !== "on") {
       setError("Agree to publication permission before sending.");
       return;
@@ -375,11 +402,34 @@ export function CommunityStreetCapture({
         <a href="#my-submissions">My submissions</a>
       </nav>
       <section id="share-street" className="smcm-capture">
-        <h1>See it. Snap it. Share your street.</h1>
-        <p>
-          Choose the street once, then keep taking photos as you walk. Add
-          descriptions and visiting hours later.
-        </p>
+        <header className="smcm-capture-heading">
+          <h1>See it. Snap it. Share your street.</h1>
+          <p>
+            Choose the street once, then keep taking photos as you walk. Add
+            descriptions and visiting hours later.
+          </p>
+        </header>
+        {storageError && (
+          <div className="smcm-capture-recovery" role="alert">
+            <p>{storageError}</p>
+            <p>
+              Sending is paused. Your last saved queue is shown below. Reload it
+              before adding or sending more files; you may need to reselect the
+              last photo.
+            </p>
+            <button
+              type="button"
+              disabled={busy || preparing}
+              onClick={() => {
+                setError("");
+                setStatus("");
+                setReload((v) => v + 1);
+              }}
+            >
+              Reload saved queue
+            </button>
+          </div>
+        )}
         {!draft ? (
           <>
             <p role="status">{error || "Opening your private photo queue…"}</p>
@@ -396,204 +446,214 @@ export function CommunityStreetCapture({
           </>
         ) : (
           <form className="smcm-form" onSubmit={send}>
-            <div className="smcm-form-grid">
-              <label>
-                Community
-                <select
-                  value={draft.area}
-                  disabled={!!draft.batch}
-                  onChange={(e) => field("area", e.target.value)}
-                >
-                  {collection.areas.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Street or nearest intersection
-                <input
-                  autoComplete="off"
-                  required
-                  maxLength={1000}
-                  value={draft.location}
-                  readOnly={!!draft.batch}
-                  onChange={(e) => field("location", e.target.value)}
-                />
-              </label>
-            </div>
-            <p className="smcm-help">
-              No house number needed. Editors choose the public street or
-              neighborhood after review.
-            </p>
-            <CaptureButtons
-              onFiles={add}
-              disabled={preparing || pending >= 30}
-            />
-            <p role="status" className="smcm-help">
-              {preparing
-                ? "Preparing photos, one at a time…"
-                : persistent
-                  ? "Unsent files are saved on this device for up to 7 days. Keep this page open while sending; return here to resume after an interruption."
-                  : "This browser cannot save a queue after closing. Keep this page open until sending finishes."}
-            </p>
-            {pending > 0 && (
-              <ul
-                className="smcm-capture-queue"
-                aria-label="Photos and recordings waiting to send"
-              >
-                {draft.files.map((f) => (
-                  <li key={f.id}>
-                    <button
-                      type="button"
-                      className="smcm-preview-button"
-                      onClick={() => setPreview(f.id)}
-                      aria-label={`Preview ${f.name}`}
-                    >
-                      Preview
-                    </button>
-                    <span className="smcm-queue-file">
-                      {f.name}
-                      <small>{(f.size / 1024 / 1024).toFixed(1)} MiB</small>
-                    </span>
-                    {progress.id === f.id ? (
-                      <span role="status">
-                        <progress max={100} value={progress.percent} />
-                        {progress.percent === 99
-                          ? "Processing…"
-                          : `${progress.percent}%`}
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={busy || preparing}
-                        onClick={() =>
-                          void change(
-                            (d) => ({
-                              ...d,
-                              files: d.files.filter((v) => v.id !== f.id),
-                            }),
-                            undefined,
-                            f.id,
-                          ).catch(() =>
-                            setError("Could not remove this file. Try again."),
-                          )
-                        }
-                        aria-label={`Remove ${f.name}`}
-                      >
-                        Remove
-                      </button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-            {preview && draft.files.some((f) => f.id === preview) && (
-              <CapturePreview
-                file={draft.files.find((f) => f.id === preview)!}
-                draftKey={draft.key}
-                store={store.current!}
-                onClose={() => setPreview(undefined)}
-              />
-            )}
-            <details className="smcm-capture-details">
-              <summary>Add details now (optional)</summary>
-              <fieldset disabled={!!draft.batch}>
+            <fieldset className="smcm-capture-fields" disabled={!!storageError}>
+              <div className="smcm-form-grid">
                 <label>
-                  Category
+                  Community
                   <select
-                    value={draft.category}
-                    onChange={(e) => field("category", e.target.value)}
+                    value={draft.area}
+                    disabled={!!draft.batch}
+                    onChange={(e) => field("area", e.target.value)}
                   >
-                    {collection.config.categories.map((c) => (
-                      <option key={c.key} value={c.key}>
-                        {c.label}
+                    {collection.areas.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}
                       </option>
                     ))}
                   </select>
                 </label>
                 <label>
-                  Name of place or display
+                  Street or nearest intersection
                   <input
-                    maxLength={191}
-                    value={draft.title}
-                    onChange={(e) => field("title", e.target.value)}
-                  />
-                </label>
-                <label>
-                  Description
-                  <textarea
-                    maxLength={12000}
-                    value={draft.description}
-                    onChange={(e) => field("description", e.target.value)}
-                  />
-                </label>
-                <label>
-                  Dates and visiting hours
-                  <input
+                    autoComplete="off"
+                    required
                     maxLength={1000}
-                    value={draft.hours}
-                    onChange={(e) => field("hours", e.target.value)}
+                    value={draft.location}
+                    readOnly={!!draft.batch}
+                    onChange={(e) => field("location", e.target.value)}
                   />
                 </label>
-              </fieldset>
-              <label>
-                Caption for new attachments
-                <textarea
-                  maxLength={1000}
-                  value={draft.caption}
-                  disabled={busy}
-                  onChange={(e) => field("caption", e.target.value)}
-                />
-              </label>
-              <label>
-                Public credit (optional)
-                <input
-                  maxLength={500}
-                  value={draft.attribution}
-                  disabled={busy}
-                  onChange={(e) => field("attribution", e.target.value)}
-                />
-              </label>
-            </details>
-            {policy && (
-              <PublicationPermission
-                policy={policy}
-                guidelinesHref={guidelinesHref}
-                termsHref={termsHref}
+              </div>
+              <p className="smcm-help">
+                No house number needed. Editors choose the public street or
+                neighborhood after review.
+              </p>
+              <CaptureButtons
+                onFiles={add}
+                disabled={preparing || pending >= 30}
               />
-            )}
-            {status && (
-              <p role="status">{status} Nothing is published automatically.</p>
-            )}
-            {error && <p role="alert">{error}</p>}
-            <div
-              className="smcm-capture-send"
-              data-pending={pending > 0 || busy ? "true" : "false"}
-            >
-              {busy ? (
-                <button type="button" onClick={() => upload.current?.abort()}>
-                  Pause sending
-                </button>
-              ) : (
-                <button disabled={!pending || preparing || !policy}>
-                  Send {pending || "photos"} for review
+              <p role="status" className="smcm-help">
+                {preparing
+                  ? "Preparing photos, one at a time…"
+                  : persistent
+                    ? "Unsent files are saved on this device for up to 7 days. Keep this page open while sending; return here to resume after an interruption."
+                    : "This browser cannot save a queue after closing. Keep this page open until sending finishes."}
+              </p>
+              {pending > 0 && (
+                <ul
+                  className="smcm-capture-queue"
+                  aria-label="Photos and recordings waiting to send"
+                >
+                  {draft.files.map((f) => (
+                    <li key={f.id}>
+                      <button
+                        type="button"
+                        className="smcm-preview-button"
+                        onClick={() => setPreview(f.id)}
+                        aria-label={`Preview ${f.name}`}
+                      >
+                        Preview
+                      </button>
+                      <span className="smcm-queue-file">
+                        {f.name}
+                        <small>{(f.size / 1024 / 1024).toFixed(1)} MiB</small>
+                      </span>
+                      {progress.id === f.id ? (
+                        <span role="status">
+                          <progress
+                            aria-label={`Uploading ${f.name}`}
+                            max={100}
+                            value={progress.percent}
+                          />
+                          {progress.percent === 99
+                            ? "Processing…"
+                            : `${progress.percent}%`}
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={busy || preparing}
+                          onClick={() =>
+                            void change(
+                              (d) => ({
+                                ...d,
+                                files: d.files.filter((v) => v.id !== f.id),
+                              }),
+                              undefined,
+                              f.id,
+                            ).catch(() =>
+                              setError(
+                                "Could not remove this file. Try again.",
+                              ),
+                            )
+                          }
+                          aria-label={`Remove ${f.name}`}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {preview && draft.files.some((f) => f.id === preview) && (
+                <CapturePreview
+                  file={draft.files.find((f) => f.id === preview)!}
+                  draftKey={draft.key}
+                  store={store.current!}
+                  onClose={() => setPreview(undefined)}
+                />
+              )}
+              <details className="smcm-capture-details">
+                <summary>Add details now (optional)</summary>
+                <fieldset disabled={!!draft.batch}>
+                  <label>
+                    Category
+                    <select
+                      value={draft.category}
+                      onChange={(e) => field("category", e.target.value)}
+                    >
+                      {collection.config.categories.map((c) => (
+                        <option key={c.key} value={c.key}>
+                          {c.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Name of place or display
+                    <input
+                      maxLength={191}
+                      value={draft.title}
+                      onChange={(e) => field("title", e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Description
+                    <textarea
+                      maxLength={12000}
+                      value={draft.description}
+                      onChange={(e) => field("description", e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Dates and visiting hours
+                    <input
+                      maxLength={1000}
+                      value={draft.hours}
+                      onChange={(e) => field("hours", e.target.value)}
+                    />
+                  </label>
+                </fieldset>
+                <label>
+                  Caption for new attachments
+                  <textarea
+                    maxLength={1000}
+                    value={draft.caption}
+                    disabled={busy}
+                    onChange={(e) => field("caption", e.target.value)}
+                  />
+                </label>
+                <label>
+                  Public credit (optional)
+                  <input
+                    maxLength={500}
+                    value={draft.attribution}
+                    disabled={busy}
+                    onChange={(e) => field("attribution", e.target.value)}
+                  />
+                </label>
+              </details>
+              {policy && (
+                <PublicationPermission
+                  policy={policy}
+                  guidelinesHref={guidelinesHref}
+                  termsHref={termsHref}
+                />
+              )}
+              {status && (
+                <p role="status">
+                  {status} Nothing is published automatically.
+                </p>
+              )}
+              {error && !storageError && <p role="alert">{error}</p>}
+              <div
+                className="smcm-capture-send"
+                data-pending={pending > 0 || busy ? "true" : "false"}
+              >
+                {busy ? (
+                  <button type="button" onClick={() => upload.current?.abort()}>
+                    Pause sending
+                  </button>
+                ) : (
+                  <button disabled={!pending || preparing || !policy}>
+                    Send {pending || "photos"} for review
+                  </button>
+                )}
+                <span>{pending} waiting</span>
+              </div>
+              {draft.batch && (
+                <button
+                  type="button"
+                  disabled={!!pending || busy || preparing}
+                  onClick={() =>
+                    void nextStreet().catch((e) => setError(message(e)))
+                  }
+                >
+                  Next street
                 </button>
               )}
-              <span>{pending} waiting</span>
-            </div>
-            {draft.batch && (
-              <button
-                type="button"
-                disabled={!!pending || busy || preparing}
-                onClick={() =>
-                  void nextStreet().catch((e) => setError(message(e)))
-                }
-              >
-                Next street
-              </button>
-            )}
+            </fieldset>
           </form>
         )}
       </section>
