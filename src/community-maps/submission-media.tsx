@@ -1,7 +1,11 @@
 "use client";
-import { useState, type FormEvent } from "react";
-import type { CommunityMapSubmissionPolicy } from "@scalemule/sdk";
+import { useRef, useState, type FormEvent } from "react";
+import {
+  prepareCommunityMapAttachment,
+  type CommunityMapSubmissionPolicy,
+} from "@scalemule/sdk";
 import type { CommunityMapsClient } from "./client";
+import { CaptureButtons } from "./capture-controls";
 export const mediaAccept =
   "image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/mp4,audio/wav,audio/x-wav,audio/ogg,audio/webm,.m4a,.mov";
 export function validateCommunityMedia(files: File[]) {
@@ -57,7 +61,9 @@ export function CommunityMediaFields({
   onFiles,
   caption = "",
   attribution = "",
+  hidePicker = false,
 }: {
+  hidePicker?: boolean;
   required?: boolean;
   caption?: string;
   attribution?: string;
@@ -66,17 +72,19 @@ export function CommunityMediaFields({
   return (
     <fieldset className="smcm-media-fields">
       <legend>Photos, video or audio {required ? "" : "(optional)"}</legend>
-      <label>
-        Choose attachments
-        <input
-          name="attachments"
-          type="file"
-          multiple
-          accept={mediaAccept}
-          required={required}
-          onChange={(e) => onFiles(Array.from(e.currentTarget.files || []))}
-        />
-      </label>
+      {!hidePicker && (
+        <label>
+          Choose attachments
+          <input
+            name="attachments"
+            type="file"
+            multiple
+            accept={mediaAccept}
+            required={required}
+            onChange={(e) => onFiles(Array.from(e.currentTarget.files || []))}
+          />
+        </label>
+      )}
       <p className="smcm-help">
         Up to 10 files. Photos: JPEG, PNG or WebP, up to 8 MiB each. Video:
         H.264 MP4/MOV or WebM, up to 3 minutes. Audio: MP3, M4A, WAV or Ogg, up
@@ -109,7 +117,11 @@ export function CommunityMediaSubmission({
   initialMessage = "",
   guidelinesHref,
   termsHref,
+  maxFiles = 10,
+  onReceived,
 }: {
+  maxFiles?: number;
+  onReceived?: () => void;
   client: CommunityMapsClient;
   slug: string;
   submission: string;
@@ -122,6 +134,31 @@ export function CommunityMediaSubmission({
   termsHref?: string;
 }) {
   const [files, setFiles] = useState(initialFiles);
+  const keys = useRef(new WeakMap<File, string>());
+  const [preparing, setPreparing] = useState(false);
+  async function add(selected: File[]) {
+    setPreparing(true);
+    setError("");
+    try {
+      if (files.length + selected.length > maxFiles)
+        throw new Error(`Choose up to ${maxFiles} attachments.`);
+      const prepared: File[] = [];
+      for (const file of selected)
+        prepared.push(await prepareCommunityMapAttachment(file));
+      if (
+        [...files, ...prepared].reduce((size, f) => size + f.size, 0) >
+        75 * 1024 * 1024
+      )
+        throw new Error(
+          "Send these files before adding more. The queue is limited to 75 MiB.",
+        );
+      setFiles((v) => [...v, ...prepared]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not prepare media.");
+    } finally {
+      setPreparing(false);
+    }
+  }
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState(initialMessage);
   const [error, setError] = useState("");
@@ -135,9 +172,14 @@ export function CommunityMediaSubmission({
     let received = 0;
     try {
       validateCommunityMedia(files);
+      if (files.length > maxFiles)
+        throw new Error(`Choose up to ${maxFiles} more attachments.`);
       if (!files.length) throw new Error("Choose a file to attach.");
       for (const file of files) {
+        if (!keys.current.has(file))
+          keys.current.set(file, crypto.randomUUID());
         await client.upload(slug, submission, file, {
+          idempotency_key: keys.current.get(file),
           caption: String(data.get("caption") || ""),
           attribution: String(data.get("attribution") || ""),
           rights_confirmed: data.get("rights") === "on",
@@ -146,6 +188,7 @@ export function CommunityMediaSubmission({
         received++;
         setFiles(files.slice(received));
       }
+      onReceived?.();
       form.reset();
       setStatus(
         `${received} attachment${received === 1 ? "" : "s"} received for editorial review.`,
@@ -165,8 +208,13 @@ export function CommunityMediaSubmission({
           ? "Finish attaching your media"
           : "Add optional photos, video or audio"}
       </h3>
-      <fieldset disabled={busy}>
+      <fieldset disabled={busy || preparing}>
+        <CaptureButtons
+          disabled={busy || preparing}
+          onFiles={(selected) => void add(selected)}
+        />
         <CommunityMediaFields
+          hidePicker
           onFiles={setFiles}
           caption={initialCaption}
           attribution={initialAttribution}
