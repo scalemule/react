@@ -420,7 +420,6 @@ export function CommunityStreetCapture({
                   value={draft.location}
                   readOnly={!!draft.batch}
                   onChange={(e) => field("location", e.target.value)}
-                  placeholder="For example: Arbolado Drive"
                 />
               </label>
             </div>
@@ -642,6 +641,7 @@ function CapturePreview({
   useEffect(() => {
     let closed = false,
       objectUrl = "";
+    setUrl("");
     void store
       .file(draftKey, file.id)
       .then((blob) => {
