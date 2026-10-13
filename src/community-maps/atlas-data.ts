@@ -8,7 +8,14 @@ import type {
 import type { CommunityMapFeature } from "@scalemule/sdk";
 
 export type AtlasLandmarkKind =
-  "park" | "oak" | "owl" | "ranch" | "garden" | "town" | "train" | "hills";
+  | "park"
+  | "oak"
+  | "owl"
+  | "ranch"
+  | "garden"
+  | "town"
+  | "train"
+  | "hills";
 export interface CommunityAtlasLandmark {
   id: string;
   name: string;
@@ -21,6 +28,10 @@ export interface CommunityAtlasLandmark {
 export interface CommunityAtlasGeography {
   name: string;
   areaSlug: string;
+  /** Defaults to city for existing atlas snapshots. */
+  areaKind?: "city" | "community";
+  boundaryDescription?: string;
+  visitorNote?: { text: string; url: string };
   bounds: [number, number, number, number];
   boundary: FeatureCollection<Polygon | MultiPolygon>;
   outsideMask?: FeatureCollection<Polygon | MultiPolygon>;

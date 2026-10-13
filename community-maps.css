@@ -549,3 +549,5 @@
 .smcm .smca .smca-modes button { color: var(--atlas-ink); }
 .smcm .smca-selection button { min-height: 44px; font-size: .8rem; }
 .smca-swatches b { white-space: nowrap; }
+
+.smca-visitor-note{border-left:3px solid #9d793e;padding:.6rem .9rem;margin:1rem 0;font:400 .85rem/1.55 system-ui,sans-serif;color:#465542;background:#f6f3e5}.smca-visitor-note a{text-decoration:underline;text-underline-offset:3px}
