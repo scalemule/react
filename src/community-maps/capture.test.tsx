@@ -10,11 +10,16 @@ import {
 import type { CommunityMapsClient } from "./client";
 import type { CommunityMapCollection } from "@scalemule/sdk";
 import { CommunityStreetCapture } from "./capture";
+import { CaptureDraftStore } from "./capture-draft";
+import { indexedDB } from "fake-indexeddb";
 vi.mock("@scalemule/sdk", async () => ({
   ...(await vi.importActual<Record<string, unknown>>("@scalemule/sdk")),
   prepareCommunityMapAttachment: async (file: File) => file,
 }));
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 const collection = {
   slug: "gardens",
   submission_policy: {
@@ -29,9 +34,10 @@ const collection = {
   },
 } as CommunityMapCollection;
 function client() {
+  const reader = crypto.randomUUID();
   return {
     ownSubmissions: vi.fn(async () => ({
-      reader_key: "test-reader",
+      reader_key: reader,
       items: [],
       next_cursor: null,
     })),
@@ -63,6 +69,51 @@ function send() {
   fireEvent.submit(button.closest("form")!);
 }
 describe("street capture", () => {
+  it("keeps a received photo visible if saving its receipt fails and safely resumes after reload", async () => {
+    Object.defineProperty(globalThis, "indexedDB", {
+      value: indexedDB,
+      configurable: true,
+    });
+    const save = CaptureDraftStore.prototype.save;
+    let fail = true;
+    vi.spyOn(CaptureDraftStore.prototype, "save").mockImplementation(
+      async function (this: CaptureDraftStore, ...args) {
+        if (args[2] && fail) {
+          fail = false;
+          throw new Error("Device storage is full. Reload before continuing.");
+        }
+        return save.apply(this, args);
+      },
+    );
+    const c = client();
+    await setup(c);
+    await choose(1);
+    fireEvent.click(screen.getByRole("checkbox"));
+    send();
+    await screen.findByRole("button", { name: "Reload saved queue" });
+    expect(screen.getByText("1 waiting")).toBeTruthy();
+    expect(
+      screen
+        .getByRole("button", { name: "Send 1 for review" })
+        .closest("fieldset")?.disabled,
+    ).toBe(true);
+    expect(c.upload).toHaveBeenCalledTimes(1);
+    const retryKey = vi.mocked(c.upload).mock.calls[0][3].idempotency_key;
+    fireEvent.click(screen.getByRole("button", { name: "Reload saved queue" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", { name: "Reload saved queue" }),
+      ).toBeNull(),
+    );
+    await screen.findByLabelText("Street or nearest intersection");
+    await screen.findByText("1 waiting");
+    fireEvent.click(screen.getByRole("checkbox"));
+    send();
+    await waitFor(() => expect(c.upload).toHaveBeenCalledTimes(2));
+    await screen.findByText("0 waiting");
+    expect(vi.mocked(c.upload).mock.calls[1][3].idempotency_key).toBe(retryKey);
+    expect(c.submit).toHaveBeenCalledTimes(1);
+  });
   it("appends repeated camera picks, requires permission, and sends street context without a description", async () => {
     const c = client();
     await setup(c);

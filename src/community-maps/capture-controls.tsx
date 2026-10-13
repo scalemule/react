@@ -37,6 +37,10 @@ export function CaptureButtons({
     let timer: ReturnType<typeof setInterval> | undefined;
     try {
       const capture = await startMediaCapture(kind, controller.signal);
+      if (controller.signal.aborted) {
+        capture.cancel();
+        return;
+      }
       session.current = capture;
       setRecording(kind);
       setElapsed(0);
@@ -52,11 +56,13 @@ export function CaptureButtons({
       if (!controller.signal.aborted) setError(message(e));
     } finally {
       clearInterval(timer);
-      request.current = undefined;
-      session.current = undefined;
-      if (!controller.signal.aborted) {
-        setRecording(null);
-        setStarting(false);
+      if (request.current === controller) {
+        request.current = undefined;
+        session.current = undefined;
+        if (!controller.signal.aborted) {
+          setRecording(null);
+          setStarting(false);
+        }
       }
     }
   }
@@ -75,6 +81,14 @@ export function CaptureButtons({
     event.currentTarget.value = "";
     if (files.length) onFiles(files);
   }
+  function cancelRequest() {
+    request.current?.abort();
+    session.current?.cancel();
+    request.current = undefined;
+    session.current = undefined;
+    setStarting(false);
+    setRecording(null);
+  }
   return (
     <div className="smcm-capture-controls">
       <div className="smcm-capture-actions">
@@ -84,6 +98,18 @@ export function CaptureButtons({
           disabled={disabled || starting || !!recording}
           onClick={() => photo.current?.click()}
         >
+          <svg
+            aria-hidden="true"
+            width="24"
+            height="24"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.6"
+          >
+            <path d="M8 5 9.5 3h5L16 5h4a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1Z" />
+            <circle cx="12" cy="12" r="4" />
+          </svg>
           Take photo
         </button>
         <button
@@ -121,51 +147,61 @@ export function CaptureButtons({
         onChange={selected}
         aria-label="Use the phone video camera"
       />
-      <div className="smcm-capture-secondary">
-        <button
-          type="button"
-          disabled={disabled || starting || !!recording}
-          onClick={() => void record("video")}
-        >
-          15-second video
-        </button>
-        <button
-          type="button"
-          disabled={disabled || starting || !!recording}
-          onClick={() => void record("audio")}
-        >
-          Voice note
-        </button>
-        <button
-          type="button"
-          disabled={disabled || starting || !!recording}
-          onClick={() => videoFile.current?.click()}
-        >
-          Phone video camera
-        </button>
-      </div>
-      {starting && (
-        <p role="status">Waiting for camera or microphone permission…</p>
-      )}
-      {recording && (
-        <div className="smcm-recorder">
-          {recording === "video" && (
-            <video ref={preview} muted playsInline autoPlay />
-          )}
-          <p role="status">
-            Recording {elapsed}s / {recording === "video" ? 15 : 60}s
-          </p>
-          <button type="button" onClick={() => session.current?.stop()}>
-            Stop and add
+      <details className="smcm-capture-more">
+        <summary>Add video or a voice note</summary>
+        <div className="smcm-capture-secondary">
+          <button
+            type="button"
+            disabled={disabled || starting || !!recording}
+            onClick={() => void record("video")}
+          >
+            15-second video
           </button>
-          <button type="button" onClick={() => session.current?.cancel()}>
-            Discard recording
+          <button
+            type="button"
+            disabled={disabled || starting || !!recording}
+            onClick={() => void record("audio")}
+          >
+            Voice note
+          </button>
+          <button
+            type="button"
+            disabled={disabled || starting || !!recording}
+            onClick={() => videoFile.current?.click()}
+          >
+            Phone video camera
           </button>
         </div>
-      )}
-      {error && (
-        <p role="alert">{error} You can still choose files from your phone.</p>
-      )}
+        {starting && (
+          <div>
+            <p role="status">Waiting for camera or microphone permission…</p>
+            <button type="button" onClick={cancelRequest}>
+              Cancel recording request
+            </button>
+          </div>
+        )}
+        {recording && (
+          <div className="smcm-recorder">
+            {recording === "video" && (
+              <video ref={preview} muted playsInline autoPlay />
+            )}
+            <p role="status">
+              Recording {elapsed}s / {recording === "video" ? 15 : 60}s
+            </p>
+            <button type="button" onClick={() => session.current?.stop()}>
+              Stop and add
+            </button>
+            <button type="button" onClick={() => session.current?.cancel()}>
+              Discard recording
+            </button>
+          </div>
+        )}
+        {error && (
+          <p role="alert">
+            {error} You can still choose files from your phone.
+          </p>
+        )}
+      </details>
     </div>
   );
 }

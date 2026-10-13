@@ -45,7 +45,7 @@ export interface CommunityStreetActivity {
   features: CommunityMapFeature[];
 }
 export const STREET_ACTIVITY_SCALE = [
-  { minimum: 1, label: "1 place", color: "#edbb55" },
+  { minimum: 1, label: "1", color: "#edbb55" },
   { minimum: 2, label: "2–4", color: "#e58b32" },
   { minimum: 5, label: "5–9", color: "#cf5436" },
   { minimum: 10, label: "10+", color: "#852e4c" },

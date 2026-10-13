@@ -161,22 +161,42 @@ export function createCommunityMapsBrowserClient(
     signal?: AbortSignal,
   ): Promise<T> {
     const form = typeof FormData !== "undefined" && body instanceof FormData;
-    const response = await fetch(url, {
-      method,
-      signal,
-      credentials: "same-origin",
-      cache: "no-store",
-      headers:
-        body && !form ? { "Content-Type": "application/json" } : undefined,
-      body: form ? body : body ? JSON.stringify(body) : undefined,
-    });
-    const result = await response.json().catch(() => null);
-    if (!response.ok || result?.error)
-      throw new Error(
-        result?.error?.message ||
-          "The community guide is unavailable. Please try again.",
-      );
-    return result.data as T;
+    const controller = new AbortController();
+    let timedOut = false;
+    const abort = () => controller.abort(signal?.reason);
+    if (signal?.aborted) abort();
+    else signal?.addEventListener("abort", abort, { once: true });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, 30000);
+    try {
+      const response = await fetch(url, {
+        method,
+        signal: controller.signal,
+        credentials: "same-origin",
+        cache: "no-store",
+        headers:
+          body && !form ? { "Content-Type": "application/json" } : undefined,
+        body: form ? body : body ? JSON.stringify(body) : undefined,
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || result?.error || result?.data == null)
+        throw new Error(
+          result?.error?.message ||
+            "The community guide is unavailable. Please try again.",
+        );
+      return result.data as T;
+    } catch (e) {
+      if (timedOut)
+        throw new Error(
+          "The connection is taking too long. Check your connection, then try again.",
+        );
+      throw e;
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+    }
   }
   const commentsPath = (s: string, featureId?: string, page?: number) => {
     const query = new URLSearchParams();

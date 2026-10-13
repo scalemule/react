@@ -30,9 +30,9 @@ export function PublicationPermission({
   return (
     <fieldset className="smcm-permission">
       <legend>Publication permission</legend>
-      <p>{policy.text}</p>
       <details>
-        <summary>Contribution guidelines</summary>
+        <summary>Read publication permission and guidelines</summary>
+        <p>{policy.text}</p>
         <p>{policy.guidelines}</p>
         {guidelinesHref && (
           <a href={guidelinesHref} target="_blank" rel="noreferrer">
@@ -41,8 +41,7 @@ export function PublicationPermission({
         )}
         {termsHref && (
           <>
-            {" "}
-            ·{" "}
+            {guidelinesHref ? " · " : null}
             <a href={termsHref} target="_blank" rel="noreferrer">
               Reader terms
             </a>
