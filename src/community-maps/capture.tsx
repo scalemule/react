@@ -12,27 +12,44 @@ import {
 } from "./capture-draft";
 import { PublicationPermission } from "./submission-media";
 import { CommunityMySubmissions } from "./my-submissions";
+import { communitySubmissionsOpen } from "./season";
 import { CaptureButtons } from "./capture-controls";
 import { CommunitySubmissionForm } from "./components";
 const message = (e: unknown) =>
   e instanceof Error ? e.message : "Please try again.";
 
-/** A street is selected once. Queue metadata is small; only one file is processed/uploaded at a time. */
-export function CommunityStreetCapture({
-  client,
-  collection,
-  initialAreaId,
-  featureHref,
-  guidelinesHref,
-  termsHref,
-}: {
+interface StreetCaptureProps {
   client: CommunityMapsClient;
   collection: CommunityMapCollection;
   initialAreaId?: string;
   featureHref?: (id: string) => string;
   guidelinesHref?: string;
   termsHref?: string;
-}) {
+}
+/** A closed season keeps its contributor history without opening the camera or draft store. */
+export function CommunityStreetCapture(props: StreetCaptureProps) {
+  if (!communitySubmissionsOpen(props.collection))
+    return (
+      <div className="smcm-capture-layout">
+        <p>
+          New submissions are closed for this guide. Your earlier contributions
+          remain below.
+        </p>
+        <CommunityMySubmissions {...props} />
+      </div>
+    );
+  return <OpenStreetCapture {...props} />;
+}
+
+/** A street is selected once. Only one file is processed/uploaded at a time. */
+function OpenStreetCapture({
+  client,
+  collection,
+  initialAreaId,
+  featureHref,
+  guidelinesHref,
+  termsHref,
+}: StreetCaptureProps) {
   const store = useRef<CaptureDraftStore>();
   const current = useRef<CaptureDraft>();
   const committed = useRef<CaptureDraft>();
@@ -393,8 +410,6 @@ export function CommunityStreetCapture({
     }));
     setStatus("");
   }
-  if (!collection.config.submissions_open)
-    return <p>Submissions are closed for this guide.</p>;
   return (
     <div className="smcm-capture-layout">
       <nav className="smcm-capture-nav" aria-label="Contributions">

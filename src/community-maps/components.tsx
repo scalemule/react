@@ -1,4 +1,5 @@
 "use client";
+import { communitySubmissionsOpen } from "./season";
 import {
   useEffect,
   useMemo,
@@ -407,7 +408,7 @@ export function CommunitySubmissionForm({
         />
       </section>
     );
-  if (!collection.config.submissions_open)
+  if (!communitySubmissionsOpen(collection))
     return <p>Submissions are currently closed for this guide.</p>;
   return (
     <form className="smcm-form" onSubmit={submit}>

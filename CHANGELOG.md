@@ -1,3 +1,9 @@
+## 0.0.21
+
+- Keep contributor history and media accessible when a collection stops accepting submissions.
+- Respect collection end dates in capture, submission and editing controls; preserve browser draft storage.
+- Seasonal publishing schedules remain application configuration. This patch does not add collection lifecycle automation or change backend access rules.
+
 ## 0.0.20
 
 - Support community terminology, source-specific boundary descriptions and visitor information in illustrated atlases. Existing city snapshots remain compatible.
