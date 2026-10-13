@@ -1,4 +1,5 @@
 "use client";
+import { communitySubmissionsOpen } from "./season";
 import { useEffect, useState, type FormEvent } from "react";
 import type {
   CommunityMapCollection,
@@ -24,6 +25,7 @@ export function CommunityMySubmissions({
   guidelinesHref?: string;
   termsHref?: string;
 }) {
+  const open = communitySubmissionsOpen(collection);
   const [items, setItems] = useState<CommunityMapOwnSubmission[]>([]),
     [next, setNext] = useState<string | null>(null),
     [error, setError] = useState("");
@@ -87,7 +89,11 @@ export function CommunityMySubmissions({
       {loading && <p role="status">Loading your submissions…</p>}
       {error && <p role="alert">{error}</p>}
       {!loading && !error && !items.length && (
-        <p>No submissions yet. Take a photo of a street you’d like to share.</p>
+        <p>
+          {open
+            ? "No submissions yet. Take a photo of a street you’d like to share."
+            : "No contributions from this browser or account in this guide."}
+        </p>
       )}
       {items.map((item) => (
         <details
@@ -142,7 +148,7 @@ export function CommunityMySubmissions({
               </a>
             </p>
           )}
-          {item.editable && collection.submission_policy && (
+          {open && item.editable && collection.submission_policy && (
             <>
               <EditSubmission
                 client={client}
@@ -166,7 +172,7 @@ export function CommunityMySubmissions({
               )}
             </>
           )}
-          {!item.editable && !item.feature_id && (
+          {open && !item.editable && !item.feature_id && (
             <p>
               Editorial review is complete for this contribution. You can send a
               new contribution from the capture form above.

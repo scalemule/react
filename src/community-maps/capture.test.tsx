@@ -165,3 +165,61 @@ describe("street capture", () => {
     );
   });
 });
+
+describe("past seasons", () => {
+  it.each([false, true])(
+    "keeps contributor history visible when submissions are closed (expired: %s)",
+    async (expired) => {
+      const c = client();
+      const open = vi.spyOn(CaptureDraftStore.prototype, "open");
+      vi.mocked(c.ownSubmissions!).mockResolvedValue({
+        reader_key: "same-reader",
+        next_cursor: null,
+        items: [
+          {
+            id: "earlier",
+            revision: 1,
+            status: "SUBMITTED",
+            editable: true,
+            area_id: "area",
+            proposal: {
+              title: "Светлини 🎄",
+              location_text: "Street only",
+              description: "Earlier contribution",
+            },
+            media: [],
+          },
+        ],
+      } as Awaited<
+        ReturnType<NonNullable<CommunityMapsClient["ownSubmissions"]>>
+      >);
+      const ended = {
+        ...collection,
+        config: {
+          ...collection.config,
+          submissions_open: expired,
+          ends_at: expired ? "2020-01-01T00:00:00Z" : undefined,
+        },
+      };
+      const { container } = render(
+        <CommunityStreetCapture client={c} collection={ended} />,
+      );
+      await screen.findByText("Светлини 🎄");
+      expect(c.ownSubmissions).toHaveBeenCalledWith(
+        "gardens",
+        undefined,
+        expect.any(AbortSignal),
+      );
+      expect(
+        screen.getByRole("heading", { name: "My submissions" }),
+      ).toBeTruthy();
+      expect(
+        container.querySelector('input[type="file"], canvas, form'),
+      ).toBeNull();
+      expect(screen.queryByText("Share a place without photos")).toBeNull();
+      expect(open).not.toHaveBeenCalled();
+      expect(c.submit).not.toHaveBeenCalled();
+      expect(c.upload).not.toHaveBeenCalled();
+    },
+  );
+});
