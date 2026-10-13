@@ -1,3 +1,8 @@
+## 0.0.18
+
+- Correct capture-button specificity and send-bar contrast for light/dark host themes. The send bar becomes sticky only after photos are queued, keeping the initial camera action visible on phones.
+- Preserve all 0.0.17 capture, privacy and moderation behavior; physical-device capture verification remains separate.
+
 ## 0.0.17
 
 - Add street-first mobile capture with native rear camera, multi-select library, bounded video/voice capture, and one-at-a-time preparation/uploads.

@@ -568,7 +568,10 @@ export function CommunityStreetCapture({
               <p role="status">{status} Nothing is published automatically.</p>
             )}
             {error && <p role="alert">{error}</p>}
-            <div className="smcm-capture-send">
+            <div
+              className="smcm-capture-send"
+              data-pending={pending > 0 || busy ? "true" : "false"}
+            >
               {busy ? (
                 <button type="button" onClick={() => upload.current?.abort()}>
                   Pause sending
