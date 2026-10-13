@@ -60,6 +60,7 @@ export function CommunityIllustratedMap({
   onLandmark: (landmark: CommunityAtlasLandmark) => void;
   onStreet: (street: CommunityStreetActivity) => void;
 }) {
+  const areaNoun = geography.areaKind || "city";
   const container = useRef<HTMLDivElement>(null);
   const instance = useRef<LibreMap>();
   const [error, setError] = useState(false);
@@ -334,7 +335,7 @@ export function CommunityIllustratedMap({
       <div
         ref={container}
         className="smca-map-canvas"
-        aria-label={`Whole-city ${mode} map of ${geography.name}`}
+        aria-label={`Whole-${areaNoun} ${mode} map of ${geography.name}`}
       />
       <div className="smca-compass" aria-hidden="true">
         <b>N</b>
@@ -344,15 +345,15 @@ export function CommunityIllustratedMap({
         </svg>
       </div>
       <button type="button" className="smca-reset" onClick={fitCity}>
-        ⌖ Whole city
+        ⌖ Whole {areaNoun}
       </button>
       <div className="smca-map-caption" aria-hidden="true">
-        <span>A little curiosity. A whole city to explore.</span>
+        <span>A little curiosity. A whole {areaNoun} to explore.</span>
         <strong>{geography.name}</strong>
       </div>
       {!ready && !error && (
         <p className="smca-loading" role="status">
-          Unfolding the city map…
+          Unfolding the map…
         </p>
       )}
       {error && (
@@ -419,29 +420,33 @@ export function CommunityCityGuide({
   const [selectedStreet, setStreet] = useState<CommunityStreetActivity>();
   const area = collection.areas.find((a) => a.slug === atlas.areaSlug);
   const areaId = area?.id;
+  const areaNoun =
+    area?.kind === "CITY" || area?.kind === "TOWN" ? "city" : "community";
   useEffect(() => {
     const controller = new AbortController();
     setLoaded(false);
     setError(undefined);
     setFeatures([]);
     setGeography(undefined);
+    setLandmark(undefined);
+    setStreet(undefined);
     async function load() {
       if (!areaId)
         throw new Error(
-          "This city is not part of the guide’s publication coverage.",
+          "This community is not part of the guide’s publication coverage.",
         );
       const response = await fetch(atlas.geographyUrl, {
         signal: controller.signal,
       });
       if (!response.ok)
-        throw new Error("The city map could not load. Please try again.");
+        throw new Error("The community map could not load. Please try again.");
       const data = (await response.json()) as CommunityAtlasGeography;
       if (
         data.areaSlug !== atlas.areaSlug ||
         !data.boundary?.features?.length ||
         data.bounds?.length !== 4
       )
-        throw new Error("The city geography is unavailable.");
+        throw new Error("The community geography is unavailable.");
       if (!controller.signal.aborted) setGeography(data);
       const records = await loadCommunityAtlasFeatures(
         client,
@@ -481,7 +486,7 @@ export function CommunityCityGuide({
   return (
     <section
       className="smca"
-      aria-label={`${area?.name || "City"} community guide`}
+      aria-label={`${area?.name || "Community"} community guide`}
     >
       <header className="smca-heading">
         <div>
@@ -489,7 +494,7 @@ export function CommunityCityGuide({
             The neighborhood field guide · {collection.config.title}
           </p>
           <h1>
-            {area?.name || "Your city"}, <em>come explore.</em>
+            {area?.name || "Your community"}, <em>come explore.</em>
           </h1>
           <p>
             Find the festive streets. Discover a new corner of town. Make a
@@ -502,6 +507,14 @@ export function CommunityCityGuide({
           </a>
         )}
       </header>
+      {geography?.visitorNote && (
+        <p className="smca-visitor-note">
+          {geography.visitorNote.text}{" "}
+          <a href={geography.visitorNote.url} target="_blank" rel="noreferrer">
+            Visitor information ↗
+          </a>
+        </p>
+      )}
       <nav className="smca-toolbar" aria-label="Community and map view">
         <div className="smca-communities">
           {[
@@ -524,7 +537,7 @@ export function CommunityCityGuide({
             checked={cityOnly}
             onChange={(event) => setCityOnly(event.target.checked)}
           />
-          <span>{area?.name || "City"} only</span>
+          <span>{area?.name || "Community"} only</span>
         </label>
         <div className="smca-modes" role="group" aria-label="Map style">
           <button
@@ -546,14 +559,16 @@ export function CommunityCityGuide({
       <div className="smca-atlas">
         <aside className="smca-sidebar" aria-label="Map guide">
           <div className="smca-field-note">
-            <span className="smca-small-cap">Your city, all together</span>
+            <span className="smca-small-cap">
+              Your {areaNoun}, all together
+            </span>
             <h2>
               Follow the <br />
               <em>festive streets.</em>
             </h2>
             <p>
-              The whole city is here. As places are approved, their streets
-              light up with color.
+              The whole {areaNoun} is here. As places are approved, their
+              streets light up with color.
             </p>
           </div>
           <div className="smca-legend">
@@ -574,7 +589,7 @@ export function CommunityCityGuide({
               festive {streets.length === 1 ? "street" : "streets"}
               <small>
                 {loaded
-                  ? `${features.length} approved ${features.length === 1 ? "place" : "places"} in ${area?.name || "this city"}`
+                  ? `${features.length} approved ${features.length === 1 ? "place" : "places"} in ${area?.name || "this community"}`
                   : "Loading the latest places…"}
               </small>
             </span>
@@ -585,7 +600,7 @@ export function CommunityCityGuide({
           </p>
           {landmark ? (
             <div ref={selection} className="smca-selection" aria-live="polite">
-              <span className="smca-small-cap">A city landmark</span>
+              <span className="smca-small-cap">A local landmark</span>
               <img src={artUrl(landmark)} alt="" width="74" height="74" />
               <h3>{landmark.name}</h3>
               <p>{landmark.description}</p>
@@ -626,8 +641,8 @@ export function CommunityCityGuide({
             <div className="smca-help">
               <span aria-hidden="true">✦</span>
               <p>
-                Choose a drawing to meet a city landmark. Zoom in to explore the
-                streets.
+                Choose a drawing to meet a local landmark. Zoom in to explore
+                the streets.
               </p>
             </div>
           )}
@@ -652,7 +667,7 @@ export function CommunityCityGuide({
           />
         ) : (
           <div className="smca-map-placeholder" role="status">
-            {error || "Unfolding the city map…"}
+            {error || "Unfolding the map…"}
           </div>
         )}
       </div>
@@ -660,11 +675,11 @@ export function CommunityCityGuide({
         <span>
           © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>{" "}
           · <a href="https://openfreemap.org/">OpenFreeMap</a> / OpenMapTiles ·
-          Census · Walk Bike Walnut Creek
+          <a href="#community-map-sources">Geographic sources</a>
         </span>
         <span>
-          Use two fingers to move the map on your phone · ⌖ to see the whole
-          city
+          Use two fingers to move the map on your phone · ⌖ to see the whole{" "}
+          {areaNoun}
         </span>
       </div>
       {error && (
@@ -738,15 +753,16 @@ export function CommunityCityGuide({
         </section>
       )}
       {geography && (
-        <details className="smca-sources">
+        <details id="community-map-sources" className="smca-sources">
           <summary>About this map & geographic sources</summary>
           <p>
-            The city outline uses Census geography. Streets, parks and landmark
-            locations come from public geographic reference data. Illustrations
-            are symbols anchored to those locations. Street color counts unique
-            approved places; contributions and reactions do not increase that
-            count. Streets without a matched approved public street label remain
-            uncolored.
+            {geography.boundaryDescription ||
+              "The city outline uses Census geography."}{" "}
+            Streets, parks and landmark locations come from public geographic
+            reference data. Illustrations are symbols anchored to those
+            locations. Street color counts unique approved places; contributions
+            and reactions do not increase that count. Streets without a matched
+            approved public street label remain uncolored.
           </p>
           <ul>
             {geography.sources.map((s) => (

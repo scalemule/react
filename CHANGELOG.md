@@ -1,3 +1,9 @@
+## 0.0.20
+
+- Support community terminology, source-specific boundary descriptions and visitor information in illustrated atlases. Existing city snapshots remain compatible.
+- Clear selected landmarks and streets when the active community changes; replace Walnut Creek-specific footer attribution with the configured geographic sources.
+- Publishers still supply verified geographic reference snapshots; geographic data ingestion is not automatic.
+
 ## 0.0.19
 
 - Simplify mobile capture with prominent photo actions and optional video/audio/details disclosures; preserve explicit publication permission and moderation.
