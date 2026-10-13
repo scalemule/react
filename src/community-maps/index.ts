@@ -15,3 +15,6 @@ export * from "./atlas-data";
 export * from "./submission-media";
 
 export * from "./engagement";
+
+export { CommunityStreetCapture } from "./capture";
+export { CommunityMySubmissions } from "./my-submissions";
