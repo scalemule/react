@@ -19,8 +19,8 @@ const collection: CommunityMapCollection = {
     timezone: "America/Los_Angeles",
     reactions: [],
     categories: [{ key: "decorated-street", label: "Decorated street" }],
-  } as CommunityMapCollection["config"],
-  areas: [{ id: "a1", name: "Concord", slug: "concord" } as CommunityMapCollection["areas"][number]],
+  } as unknown as CommunityMapCollection["config"],
+  areas: [{ id: "a1", name: "Concord", slug: "concord" } as unknown as CommunityMapCollection["areas"][number]],
   submission_policy: { version: "v1", text: "permission", guidelines: "be kind" },
 };
 
