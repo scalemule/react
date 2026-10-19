@@ -7,8 +7,7 @@ import {
   useState,
   type CSSProperties,
   type FormEvent,
-  type ReactNode,
-} from "react";
+  type ReactNode,, useId } from "react";
 import type {
   CommunityMapArea,
   CommunityMapCollection,
@@ -313,7 +312,8 @@ export function CommunitySubmissionForm({
   } | null>(null);
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState("");
-  function useCurrentLocation() {
+  const locationHelpId = useId();
+  function readCurrentLocation() {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
       setLocationError("Location is not available in this browser.");
       return;
@@ -502,9 +502,9 @@ export function CommunitySubmissionForm({
         <button
           type="button"
           className="smcm-button smcm-button-quiet"
-          onClick={useCurrentLocation}
+          onClick={readCurrentLocation}
           disabled={busy || locating}
-          aria-describedby="smcm-current-location-help"
+          aria-describedby={locationHelpId}
         >
           {locating
             ? "Reading your location…"
@@ -516,7 +516,12 @@ export function CommunitySubmissionForm({
           <span role="status" className="smcm-current-location-value">
             Location attached ({position.latitude.toFixed(5)},{" "}
             {position.longitude.toFixed(5)}, about {position.accuracy} m).{" "}
-            <button type="button" className="smcm-link" onClick={() => setPosition(null)}>
+            <button
+              type="button"
+              className="smcm-link"
+              disabled={busy}
+              onClick={() => setPosition(null)}
+            >
               Remove
             </button>
           </span>
@@ -527,7 +532,7 @@ export function CommunitySubmissionForm({
           </span>
         )}
       </div>
-      <p id="smcm-current-location-help" className="smcm-help">
+      <p id={locationHelpId} className="smcm-help">
         If you are standing at the display, this pins it for editors. Photo
         location data is read the same way. Both stay private; the public
         guide shows only the street or neighborhood editors approve.
