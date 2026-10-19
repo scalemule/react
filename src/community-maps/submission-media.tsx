@@ -10,11 +10,13 @@ export const mediaAccept =
   "image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,audio/mpeg,audio/mp4,audio/wav,audio/x-wav,audio/ogg,audio/webm,.m4a,.mov";
 export function validateCommunityMedia(files: File[]) {
   if (files.length > 10) throw new Error("Choose up to 10 attachments.");
+  // Photos are sent exactly as chosen (no browser re-encode, so capture
+  // metadata reaches the platform intact); the server door accepts 25 MiB.
   for (const file of files) {
     const photo = file.type.startsWith("image/");
-    if (!file.size || file.size > (photo ? 8 : 25) * 1024 * 1024)
+    if (!file.size || file.size > 25 * 1024 * 1024)
       throw new Error(
-        `${file.name}: choose a ${photo ? "photo up to 8 MiB" : "video or audio file up to 25 MiB"}.`,
+        `${file.name}: choose a ${photo ? "photo" : "video or audio file"} up to 25 MiB.`,
       );
   }
 }
@@ -85,7 +87,7 @@ export function CommunityMediaFields({
         </label>
       )}
       <p className="smcm-help">
-        Up to 10 files. Photos: JPEG, PNG or WebP, up to 8 MiB each. Video:
+        Up to 10 files. Photos: JPEG, PNG or WebP, up to 25 MiB each. Video:
         H.264 MP4/MOV or WebM, up to 3 minutes. Audio: MP3, M4A, WAV or Ogg, up
         to 10 minutes. Video and audio: up to 25 MiB each.
       </p>
