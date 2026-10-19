@@ -2,6 +2,7 @@
 import { communitySubmissionsOpen } from "./season";
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -306,6 +307,39 @@ export function CommunitySubmissionForm({
   const [receipt, setReceipt] = useState<string | null>(null);
   const key = useRequestKey();
   const [attachments, setAttachments] = useState<File[]>([]);
+  const [position, setPosition] = useState<{
+    latitude: number;
+    longitude: number;
+    accuracy: number;
+  } | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState("");
+  const locationHelpId = useId();
+  function readCurrentLocation() {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setLocationError("Location is not available in this browser.");
+      return;
+    }
+    setLocating(true);
+    setLocationError("");
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        setPosition({
+          latitude: Math.round(coords.latitude * 1e6) / 1e6,
+          longitude: Math.round(coords.longitude * 1e6) / 1e6,
+          accuracy: Math.round(coords.accuracy),
+        });
+        setLocating(false);
+      },
+      () => {
+        setLocationError(
+          "We could not read your location. Enter the address or nearest intersection instead.",
+        );
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+    );
+  }
   const [retry, setRetry] = useState({
     files: [] as File[],
     caption: "",
@@ -331,6 +365,9 @@ export function CommunitySubmissionForm({
       category: field("category"),
       hours: field("hours") || null,
       correction_for: correctionFor || null,
+      exact_geometry: position
+        ? { type: "Point", coordinates: [position.longitude, position.latitude] }
+        : null,
     };
     if (!policy) {
       setBusy(false);
@@ -462,6 +499,45 @@ export function CommunitySubmissionForm({
       <p className="smcm-help">
         An address or nearest intersection helps us verify the location. This
         field is private and is not copied into the public guide.
+      </p>
+      <div className="smcm-current-location">
+        <button
+          type="button"
+          className="smcm-button smcm-button-quiet"
+          onClick={readCurrentLocation}
+          disabled={busy || locating}
+          aria-describedby={locationHelpId}
+        >
+          {locating
+            ? "Reading your location…"
+            : position
+              ? "Update my current location"
+              : "Use my current location"}
+        </button>
+        {position && (
+          <span role="status" className="smcm-current-location-value">
+            Location attached ({position.latitude.toFixed(5)},{" "}
+            {position.longitude.toFixed(5)}, about {position.accuracy} m).{" "}
+            <button
+              type="button"
+              className="smcm-link"
+              disabled={busy}
+              onClick={() => setPosition(null)}
+            >
+              Remove
+            </button>
+          </span>
+        )}
+        {locationError && (
+          <span role="alert" className="smcm-help">
+            {locationError}
+          </span>
+        )}
+      </div>
+      <p id={locationHelpId} className="smcm-help">
+        If you are standing at the display, this pins it for editors. Photo
+        location data is read the same way. Both stay private; the public
+        guide shows only the street or neighborhood editors approve.
       </p>
       <label>
         Dates and visiting hours
