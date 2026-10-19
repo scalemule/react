@@ -2,12 +2,14 @@
 import { communitySubmissionsOpen } from "./season";
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
   type FormEvent,
-  type ReactNode,, useId } from "react";
+  type ReactNode,
+} from "react";
 import type {
   CommunityMapArea,
   CommunityMapCollection,
