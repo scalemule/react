@@ -442,6 +442,7 @@ function OpenStreetCapture({
       description: "",
       hours: "",
       caption: "",
+      position: null,
       batch: undefined,
     }));
     setStatus("");
@@ -552,7 +553,11 @@ function OpenStreetCapture({
                         type="button"
                         className="smcm-link"
                         disabled={busy}
-                        onClick={() => void change((d) => ({ ...d, position: null }))}
+                        onClick={() =>
+                          void change((d) => ({ ...d, position: null })).catch(() =>
+                            setLocationError("This device could not save your changes."),
+                          )
+                        }
                       >
                         Remove
                       </button>
@@ -727,8 +732,10 @@ function OpenStreetCapture({
                     Pause sending
                   </button>
                 ) : (
-                  <button disabled={!pending || preparing || !policy}>
-                    Send {pending || "photos"} for review
+                  <button disabled={!pending || preparing || locating || !policy}>
+                    {locating
+                      ? "Reading your location…"
+                      : `Send ${pending || "photos"} for review`}
                   </button>
                 )}
                 <span>{pending} waiting</span>
