@@ -23,6 +23,8 @@ export interface CaptureDraft {
   hours: string;
   caption: string;
   attribution: string;
+  /** Device position the reader chose to attach; private, editorial-only. */
+  position?: { latitude: number; longitude: number; accuracy: number } | null;
   files: CaptureFile[];
   batch?: { input: CommunityMapSubmissionInput; id?: string; count: number };
 }
