@@ -213,6 +213,36 @@ function OpenStreetCapture({
       ),
     );
   }
+  const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState("");
+  function readCurrentLocation() {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setLocationError("Location is not available in this browser.");
+      return;
+    }
+    setLocating(true);
+    setLocationError("");
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        const position = {
+          latitude: Math.round(coords.latitude * 1e6) / 1e6,
+          longitude: Math.round(coords.longitude * 1e6) / 1e6,
+          accuracy: Math.round(coords.accuracy),
+        };
+        void change((d) => ({ ...d, position })).catch(() =>
+          setLocationError("This device could not save your location."),
+        );
+        setLocating(false);
+      },
+      () => {
+        setLocationError(
+          "We could not read your location. The street you typed is still sent.",
+        );
+        setLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+    );
+  }
   function add(files: File[]) {
     if (storageFailed.current) return;
     setPreparing(true);
@@ -308,6 +338,12 @@ function OpenStreetCapture({
                   category: v.category,
                   contributor_claim: "visitor",
                   hours: v.hours.trim() || null,
+                  exact_geometry: v.position
+                    ? {
+                        type: "Point",
+                        coordinates: [v.position.longitude, v.position.latitude],
+                      }
+                    : null,
                 },
               },
             },
@@ -492,6 +528,46 @@ function OpenStreetCapture({
               <p className="smcm-help">
                 No house number needed. Editors choose the public street or
                 neighborhood after review.
+              </p>
+              <div className="smcm-current-location">
+                <button
+                  type="button"
+                  className="smcm-button smcm-button-quiet"
+                  disabled={busy || locating || !!draft.batch}
+                  onClick={readCurrentLocation}
+                >
+                  {locating
+                    ? "Reading your location…"
+                    : draft.position
+                      ? "Update my current location"
+                      : "Use my current location"}
+                </button>
+                {draft.position && (
+                  <span role="status" className="smcm-current-location-value">
+                    Location attached ({draft.position.latitude.toFixed(5)},{" "}
+                    {draft.position.longitude.toFixed(5)}, about{" "}
+                    {draft.position.accuracy} m).{" "}
+                    {!draft.batch && (
+                      <button
+                        type="button"
+                        className="smcm-link"
+                        disabled={busy}
+                        onClick={() => void change((d) => ({ ...d, position: null }))}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </span>
+                )}
+                {locationError && (
+                  <span role="alert" className="smcm-help">
+                    {locationError}
+                  </span>
+                )}
+              </div>
+              <p className="smcm-help">
+                Standing at the display? Attaching your location pins it for
+                editors. It stays private, like the street you typed.
               </p>
               <CaptureButtons
                 onFiles={add}
