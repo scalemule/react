@@ -1,4 +1,5 @@
-"use client";
+import type { CommunityMapDevicePosition } from "@scalemule/sdk";
+("use client");
 import { useRef, useState, type FormEvent } from "react";
 import {
   prepareCommunityMapAttachment,
@@ -120,9 +121,12 @@ export function CommunityMediaSubmission({
   termsHref,
   maxFiles = 10,
   onReceived,
+  devicePosition = null,
 }: {
   maxFiles?: number;
   onReceived?: () => void;
+  /** The reader's confirmed device position for these attachments; private. */
+  devicePosition?: CommunityMapDevicePosition | null;
   client: CommunityMapsClient;
   slug: string;
   submission: string;
@@ -185,6 +189,7 @@ export function CommunityMediaSubmission({
           attribution: String(data.get("attribution") || ""),
           rights_confirmed: data.get("rights") === "on",
           consent_version: policy.version,
+          device_position: devicePosition,
         });
         received++;
         setFiles(files.slice(received));

@@ -448,6 +448,7 @@ export function CommunitySubmissionForm({
           initialMessage={retry.message}
           guidelinesHref={guidelinesHref}
           termsHref={termsHref}
+          devicePosition={toUploadPosition(position)}
         />
       </section>
     );
@@ -597,12 +598,21 @@ export function CommunitySubmissionForm({
           className="smcm-at-display"
           role="group"
           aria-labelledby={atDisplayId}
+          aria-describedby={`${atDisplayId}-why`}
         >
-          <p id={atDisplayId}>
-            <strong>Are you at this display right now?</strong> Most phones do
-            not save a location inside the photo. Pinning where you stand helps
-            editors put it on the right block; it stays private.
+          <p>
+            <strong id={atDisplayId}>Are you at this display right now?</strong>{" "}
+            <span id={`${atDisplayId}-why`}>
+              Most phones do not save a location inside the photo. Pinning where
+              you stand helps editors put it on the right block; it stays
+              private.
+            </span>
           </p>
+          {locationError && (
+            <p role="alert" className="smcm-help">
+              {locationError}
+            </p>
+          )}
           <div className="smcm-form-actions">
             <button
               type="button"

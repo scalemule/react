@@ -241,6 +241,27 @@ function OpenStreetCapture({
         if (alive.current) setLocating(false);
       });
   }
+  async function attachPosition(ids: string[]) {
+    if (alive.current) setCaptureNote("Reading where this was taken…");
+    const position = await Promise.race([
+      readDevicePosition("camera").catch(() => null),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 20000)),
+    ]);
+    if (!alive.current) return;
+    if (position)
+      await change((d) => ({
+        ...d,
+        files: d.files.map((f) =>
+          ids.includes(f.id) && !f.upload ? { ...f, position } : f,
+        ),
+      })).catch(() => {});
+    if (alive.current)
+      setCaptureNote(
+        position
+          ? `Location read for this capture (about ${position.accuracy} m). It stays private.`
+          : "We could not read where this was taken. The street you typed still goes to editors.",
+      );
+  }
   function add(files: File[], source: CaptureSource = "library") {
     if (storageFailed.current) return;
     setPreparing(true);
@@ -248,19 +269,14 @@ function OpenStreetCapture({
     adding.current = adding.current
       .catch(() => {})
       .then(async () => {
-        // A photo taken here and now is the one case where the device's position
-        // is the display's position: read it once for this batch, best effort.
-        // Library picks may be days old and from anywhere, so they get none.
-        let position = null;
-        if (source !== "library") {
-          position = await readDevicePosition("camera").catch(() => null);
-          if (alive.current)
-            setCaptureNote(
-              position
-                ? `Location read for this photo (about ${position.accuracy} m). It stays private.`
-                : "We could not read where this photo was taken. The street you typed still goes to editors.",
-            );
-        }
+        // A capture taken here and now is the one case where the device's
+        // position is the display's position. The file is saved to the queue
+        // FIRST; the position is read afterwards, best effort, and attached to
+        // it — a permission prompt the reader never answers must not hold the
+        // photo in memory. Library picks may be days old and from anywhere, so
+        // they get none.
+        const ids: string[] = [];
+        if (source === "library") setCaptureNote("");
         for (const original of files) {
           if (!alive.current) return;
           const d = current.current!;
@@ -289,13 +305,16 @@ function OpenStreetCapture({
                   name: file.name,
                   size: file.size,
                   type: file.type,
-                  position,
+                  position: null,
                 },
               ],
             }),
             { id, file },
           );
+          ids.push(id);
         }
+        // Detached on purpose: sending must never wait on a location prompt.
+        if (source !== "library" && ids.length) void attachPosition(ids);
       })
       .catch((e) => {
         if (alive.current) setError(message(e));
@@ -397,12 +416,12 @@ function OpenStreetCapture({
                       consent_version: policy.version,
                       // The photo's own camera read wins; otherwise the street-level
                       // "I'm at the display" position the reader attached.
+                      // A draft position saved before provenance existed has no
+                      // read time and is not sent per photo; it still reaches
+                      // editors as the submission's exact_geometry.
                       device_position:
                         toUploadPosition(f.position) ??
-                        toUploadPosition(v.position, {
-                          read_at: new Date(v.updated).toISOString(),
-                          method: "at-display",
-                        }),
+                        toUploadPosition(v.position),
                     },
                   }
                 : f,
@@ -465,6 +484,7 @@ function OpenStreetCapture({
       busyRef.current = false;
       if (alive.current) {
         setBusy(false);
+        setCaptureNote("");
         setProgress({ id: "", percent: 0 });
         setRefresh((v) => v + 1);
       }
