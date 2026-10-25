@@ -13,7 +13,14 @@ import type {
   CommunityMapReceipt,
   CommunityMapReportInput,
   RequestOptions,
+  CommunityMapDevicePosition,
 } from "@scalemule/sdk";
+export interface CommunityUploadReceipt {
+  id: string;
+  /** Whether the file itself carried a position (never the coordinates); absent on replays and older services. */
+  position_captured?: boolean;
+  device_position_recorded?: boolean;
+}
 export interface CommunityUploadOptions {
   signal?: AbortSignal;
   onProgress?: (percent: number) => void;
@@ -86,9 +93,11 @@ export interface CommunityMapsClient {
       rights_confirmed: boolean;
       consent_version: string;
       idempotency_key?: string;
+      /** Where the reader's device was; private, editorial-only. */
+      device_position?: CommunityMapDevicePosition | null;
     },
     options?: CommunityUploadOptions,
-  ): Promise<{ id: string }>;
+  ): Promise<CommunityUploadReceipt>;
   mediaUrl(slug: string, id: string): string;
 }
 /** Use for already authenticated clients. Server keys belong only on your server. */
@@ -265,8 +274,11 @@ export function createCommunityMapsBrowserClient(
     upload: (s, id, file, fields, options) => {
       const form = new FormData();
       form.set("file", file);
-      for (const [k, v] of Object.entries(fields)) form.set(k, String(v));
-      return new Promise<{ id: string }>((resolve, reject) => {
+      for (const [k, v] of Object.entries(fields)) {
+        if (v === undefined || v === null) continue;
+        form.set(k, typeof v === "object" ? JSON.stringify(v) : String(v));
+      }
+      return new Promise<CommunityUploadReceipt>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         const abort = () => xhr.abort();
         const clean = () =>

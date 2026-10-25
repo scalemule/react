@@ -136,6 +136,81 @@ describe("street capture", () => {
     });
     expect(c.submit).toHaveBeenCalledTimes(1);
   });
+  it("reads the device position as a camera photo is taken and sends it with that photo only", async () => {
+    const getCurrentPosition = vi.fn((ok: PositionCallback) =>
+      ok({
+        coords: {
+          latitude: 38.0011204,
+          longitude: -122.0321617,
+          accuracy: 12.4,
+        },
+      } as GeolocationPosition),
+    );
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      geolocation: { getCurrentPosition },
+    });
+    const c = client();
+    vi.mocked(c.upload).mockResolvedValue({
+      id: "media",
+      position_captured: false,
+    });
+    await setup(c);
+    await choose(1);
+    expect(getCurrentPosition).not.toHaveBeenCalled();
+    fireEvent.change(
+      screen.getByLabelText("Take a photo with the rear camera"),
+      { target: { files: photos(1) } },
+    );
+    await screen.findByText("2 waiting");
+    await screen.findByText(/Location read for this photo \(about 12 m\)/);
+    expect(getCurrentPosition).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("checkbox"));
+    send();
+    await waitFor(() => expect(c.upload).toHaveBeenCalledTimes(2));
+    const fields = vi.mocked(c.upload).mock.calls.map((call) => call[3]);
+    const library = fields.find((f) => !f.device_position);
+    const camera = fields.find((f) => f.device_position);
+    expect(library).toBeDefined();
+    expect(camera?.device_position).toMatchObject({
+      latitude: 38.00112,
+      longitude: -122.032162,
+      accuracy_m: 12,
+      method: "camera",
+    });
+    expect(camera?.device_position?.read_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    // The photo without GPS and without a device read is reported back to the reader.
+    await screen.findByText(
+      /1 carried no location data; editors will place it/,
+    );
+  });
+  it("sends the reader's at-display position with library photos when they attached one", async () => {
+    const getCurrentPosition = vi.fn((ok: PositionCallback) =>
+      ok({
+        coords: { latitude: 37.978, longitude: -122.0311, accuracy: 30 },
+      } as GeolocationPosition),
+    );
+    vi.stubGlobal("navigator", {
+      ...navigator,
+      geolocation: { getCurrentPosition },
+    });
+    const c = client();
+    await setup(c);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Use my current location" }),
+    );
+    await screen.findByText(/Location attached/);
+    await choose(1);
+    fireEvent.click(screen.getByRole("checkbox"));
+    send();
+    await waitFor(() => expect(c.upload).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(c.upload).mock.calls[0][3].device_position).toMatchObject({
+      latitude: 37.978,
+      longitude: -122.0311,
+      accuracy_m: 30,
+      method: "at-display",
+    });
+  });
   it("retries the same attachment key after a lost response without recreating the street", async () => {
     const c = client();
     vi.mocked(c.upload)
