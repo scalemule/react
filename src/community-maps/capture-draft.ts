@@ -1,14 +1,21 @@
-import type { CommunityMapSubmissionInput } from "@scalemule/sdk";
+import type {
+  CommunityMapDevicePosition,
+  CommunityMapSubmissionInput,
+} from "@scalemule/sdk";
+import type { DevicePosition, SavedPosition } from "./device-position";
 export interface CaptureFile {
   id: string;
   name: string;
   size: number;
   type: string;
+  /** Device position read as this photo was taken with the camera button. Private. */
+  position?: DevicePosition | null;
   upload?: {
     submission: string;
     caption: string;
     attribution: string;
     consent_version: string;
+    device_position?: CommunityMapDevicePosition | null;
   };
 }
 export interface CaptureDraft {
@@ -23,8 +30,8 @@ export interface CaptureDraft {
   hours: string;
   caption: string;
   attribution: string;
-  /** Device position the reader chose to attach; private, editorial-only. */
-  position?: { latitude: number; longitude: number; accuracy: number } | null;
+  /** Device position the reader chose to attach ("I'm at the display"); private, editorial-only. */
+  position?: SavedPosition | null;
   files: CaptureFile[];
   batch?: { input: CommunityMapSubmissionInput; id?: string; count: number };
 }

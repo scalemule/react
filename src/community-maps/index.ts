@@ -17,4 +17,11 @@ export * from "./submission-media";
 export * from "./engagement";
 
 export { CommunityStreetCapture } from "./capture";
+export {
+  readDevicePosition,
+  toUploadPosition,
+  DevicePositionUnavailable,
+  type DevicePosition,
+  type DevicePositionMethod,
+} from "./device-position";
 export { CommunityMySubmissions } from "./my-submissions";

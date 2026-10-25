@@ -4,11 +4,13 @@ import { startMediaCapture, type MediaCaptureSession } from "@scalemule/sdk";
 import { mediaAccept } from "./submission-media";
 const message = (e: unknown) =>
   e instanceof Error ? e.message : "Please try again.";
+/** `camera` and `recording` are taken right now, on the spot; `library` files may come from anywhere and any time. */
+export type CaptureSource = "camera" | "library" | "recording";
 export function CaptureButtons({
   onFiles,
   disabled = false,
 }: {
-  onFiles: (files: File[]) => void;
+  onFiles: (files: File[], source: CaptureSource) => void;
   disabled?: boolean;
 }) {
   const photo = useRef<HTMLInputElement>(null),
@@ -51,7 +53,7 @@ export function CaptureButtons({
         250,
       );
       const file = await capture.result;
-      if (file && !controller.signal.aborted) onFiles([file]);
+      if (file && !controller.signal.aborted) onFiles([file], "recording");
     } catch (e) {
       if (!controller.signal.aborted) setError(message(e));
     } finally {
@@ -76,10 +78,13 @@ export function CaptureButtons({
       if (element) element.srcObject = null;
     };
   }, [recording]);
-  function selected(event: React.ChangeEvent<HTMLInputElement>) {
+  function selected(
+    event: React.ChangeEvent<HTMLInputElement>,
+    source: CaptureSource,
+  ) {
     const files = Array.from(event.currentTarget.files || []);
     event.currentTarget.value = "";
-    if (files.length) onFiles(files);
+    if (files.length) onFiles(files, source);
   }
   function cancelRequest() {
     request.current?.abort();
@@ -126,7 +131,7 @@ export function CaptureButtons({
         accept="image/*"
         capture="environment"
         hidden
-        onChange={selected}
+        onChange={(e) => selected(e, "camera")}
         aria-label="Take a photo with the rear camera"
       />
       <input
@@ -135,7 +140,7 @@ export function CaptureButtons({
         accept={mediaAccept}
         multiple
         hidden
-        onChange={selected}
+        onChange={(e) => selected(e, "library")}
         aria-label="Choose multiple photos, video or audio"
       />
       <input
@@ -144,7 +149,7 @@ export function CaptureButtons({
         accept="video/*"
         capture="environment"
         hidden
-        onChange={selected}
+        onChange={(e) => selected(e, "camera")}
         aria-label="Use the phone video camera"
       />
       <details className="smcm-capture-more">

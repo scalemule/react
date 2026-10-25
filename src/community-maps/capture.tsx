@@ -13,7 +13,12 @@ import {
 import { PublicationPermission } from "./submission-media";
 import { CommunityMySubmissions } from "./my-submissions";
 import { communitySubmissionsOpen } from "./season";
-import { CaptureButtons } from "./capture-controls";
+import { CaptureButtons, type CaptureSource } from "./capture-controls";
+import {
+  DevicePositionUnavailable,
+  readDevicePosition,
+  toUploadPosition,
+} from "./device-position";
 import { CommunitySubmissionForm } from "./components";
 const message = (e: unknown) =>
   e instanceof Error ? e.message : "Please try again.";
@@ -215,41 +220,63 @@ function OpenStreetCapture({
   }
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState("");
+  const [captureNote, setCaptureNote] = useState("");
   function readCurrentLocation() {
-    if (typeof navigator === "undefined" || !navigator.geolocation) {
-      setLocationError("Location is not available in this browser.");
-      return;
-    }
     setLocating(true);
     setLocationError("");
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) => {
-        const position = {
-          latitude: Math.round(coords.latitude * 1e6) / 1e6,
-          longitude: Math.round(coords.longitude * 1e6) / 1e6,
-          accuracy: Math.round(coords.accuracy),
-        };
-        void change((d) => ({ ...d, position })).catch(() =>
+    readDevicePosition("at-display")
+      .then((position) =>
+        change((d) => ({ ...d, position })).catch(() =>
           setLocationError("This device could not save your location."),
-        );
-        setLocating(false);
-      },
-      () => {
+        ),
+      )
+      .catch((e) =>
         setLocationError(
-          "We could not read your location. The street you typed is still sent.",
-        );
-        setLocating(false);
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
-    );
+          e instanceof DevicePositionUnavailable && e.reason === "unsupported"
+            ? "Location is not available in this browser."
+            : "We could not read your location. The street you typed is still sent.",
+        ),
+      )
+      .finally(() => {
+        if (alive.current) setLocating(false);
+      });
   }
-  function add(files: File[]) {
+  async function attachPosition(ids: string[]) {
+    if (alive.current) setCaptureNote("Reading where this was taken…");
+    const position = await Promise.race([
+      readDevicePosition("camera").catch(() => null),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 20000)),
+    ]);
+    if (!alive.current) return;
+    if (position)
+      await change((d) => ({
+        ...d,
+        files: d.files.map((f) =>
+          ids.includes(f.id) && !f.upload ? { ...f, position } : f,
+        ),
+      })).catch(() => {});
+    if (alive.current)
+      setCaptureNote(
+        position
+          ? `Location read for this capture (about ${position.accuracy} m). It stays private.`
+          : "We could not read where this was taken. The street you typed still goes to editors.",
+      );
+  }
+  function add(files: File[], source: CaptureSource = "library") {
     if (storageFailed.current) return;
     setPreparing(true);
     setError("");
     adding.current = adding.current
       .catch(() => {})
       .then(async () => {
+        // A capture taken here and now is the one case where the device's
+        // position is the display's position. The file is saved to the queue
+        // FIRST; the position is read afterwards, best effort, and attached to
+        // it — a permission prompt the reader never answers must not hold the
+        // photo in memory. Library picks may be days old and from anywhere, so
+        // they get none.
+        const ids: string[] = [];
+        if (source === "library") setCaptureNote("");
         for (const original of files) {
           if (!alive.current) return;
           const d = current.current!;
@@ -273,12 +300,21 @@ function OpenStreetCapture({
               ...d,
               files: [
                 ...d.files,
-                { id, name: file.name, size: file.size, type: file.type },
+                {
+                  id,
+                  name: file.name,
+                  size: file.size,
+                  type: file.type,
+                  position: null,
+                },
               ],
             }),
             { id, file },
           );
+          ids.push(id);
         }
+        // Detached on purpose: sending must never wait on a location prompt.
+        if (source !== "library" && ids.length) void attachPosition(ids);
       })
       .catch((e) => {
         if (alive.current) setError(message(e));
@@ -306,6 +342,7 @@ function OpenStreetCapture({
     const controller = new AbortController();
     upload.current = controller;
     let sent = 0;
+    let unplaced = 0;
     try {
       await adding.current;
       await writes.current;
@@ -341,7 +378,10 @@ function OpenStreetCapture({
                   exact_geometry: v.position
                     ? {
                         type: "Point",
-                        coordinates: [v.position.longitude, v.position.latitude],
+                        coordinates: [
+                          v.position.longitude,
+                          v.position.latitude,
+                        ],
                       }
                     : null,
                 },
@@ -374,6 +414,14 @@ function OpenStreetCapture({
                       caption: v.caption,
                       attribution: v.attribution,
                       consent_version: policy.version,
+                      // The photo's own camera read wins; otherwise the street-level
+                      // "I'm at the display" position the reader attached.
+                      // A draft position saved before provenance existed has no
+                      // read time and is not sent per photo; it still reaches
+                      // editors as the submission's exact_geometry.
+                      device_position:
+                        toUploadPosition(f.position) ??
+                        toUploadPosition(v.position),
                     },
                   }
                 : f,
@@ -386,7 +434,7 @@ function OpenStreetCapture({
             `${saved.name} is no longer stored on this device. Remove it and select it again.`,
           );
         setProgress({ id: saved.id, percent: 0 });
-        await client.upload(
+        const receipt = await client.upload(
           collection.slug,
           saved.upload!.submission,
           file,
@@ -412,9 +460,17 @@ function OpenStreetCapture({
           saved.id,
         );
         sent++;
+        if (
+          receipt.position_captured === false &&
+          !saved.upload!.device_position
+        )
+          unplaced++;
         if (alive.current)
           setStatus(
-            `${sent} attachment${sent === 1 ? "" : "s"} received for review. Keep adding photos on this street.`,
+            `${sent} attachment${sent === 1 ? "" : "s"} received for review. Keep adding photos on this street.` +
+              (unplaced
+                ? ` ${unplaced} carried no location data; editors will place ${unplaced === 1 ? "it" : "them"} from the street you typed.`
+                : ""),
           );
       }
     } catch (e) {
@@ -428,6 +484,7 @@ function OpenStreetCapture({
       busyRef.current = false;
       if (alive.current) {
         setBusy(false);
+        setCaptureNote("");
         setProgress({ id: "", percent: 0 });
         setRefresh((v) => v + 1);
       }
@@ -554,8 +611,11 @@ function OpenStreetCapture({
                         className="smcm-link"
                         disabled={busy}
                         onClick={() =>
-                          void change((d) => ({ ...d, position: null })).catch(() =>
-                            setLocationError("This device could not save your changes."),
+                          void change((d) => ({ ...d, position: null })).catch(
+                            () =>
+                              setLocationError(
+                                "This device could not save your changes.",
+                              ),
                           )
                         }
                       >
@@ -578,6 +638,11 @@ function OpenStreetCapture({
                 onFiles={add}
                 disabled={preparing || pending >= 30}
               />
+              {captureNote && (
+                <p role="status" className="smcm-help">
+                  {captureNote}
+                </p>
+              )}
               <p role="status" className="smcm-help">
                 {preparing
                   ? "Preparing photos, one at a time…"
@@ -732,7 +797,9 @@ function OpenStreetCapture({
                     Pause sending
                   </button>
                 ) : (
-                  <button disabled={!pending || preparing || locating || !policy}>
+                  <button
+                    disabled={!pending || preparing || locating || !policy}
+                  >
                     {locating
                       ? "Reading your location…"
                       : `Send ${pending || "photos"} for review`}

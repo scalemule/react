@@ -27,6 +27,12 @@ import {
 } from "./submission-media";
 import type { CommunityMapSubmissionPolicy } from "@scalemule/sdk";
 import type { CommunityMapsClient } from "./client";
+import {
+  DevicePositionUnavailable,
+  readDevicePosition,
+  toUploadPosition,
+  type DevicePosition,
+} from "./device-position";
 import { CommunityMap, type CommunityMapProvider } from "./map";
 import { CommunityVote, CommunityDiscussion } from "./engagement";
 const message = (error: unknown) =>
@@ -307,38 +313,26 @@ export function CommunitySubmissionForm({
   const [receipt, setReceipt] = useState<string | null>(null);
   const key = useRequestKey();
   const [attachments, setAttachments] = useState<File[]>([]);
-  const [position, setPosition] = useState<{
-    latitude: number;
-    longitude: number;
-    accuracy: number;
-  } | null>(null);
+  const [position, setPosition] = useState<DevicePosition | null>(null);
+  /** Answer to "Are you at this display right now?"; asked once photos are chosen. */
+  const [atDisplay, setAtDisplay] = useState<"unanswered" | "no">("unanswered");
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState("");
   const locationHelpId = useId();
+  const atDisplayId = useId();
   function readCurrentLocation() {
-    if (typeof navigator === "undefined" || !navigator.geolocation) {
-      setLocationError("Location is not available in this browser.");
-      return;
-    }
     setLocating(true);
     setLocationError("");
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) => {
-        setPosition({
-          latitude: Math.round(coords.latitude * 1e6) / 1e6,
-          longitude: Math.round(coords.longitude * 1e6) / 1e6,
-          accuracy: Math.round(coords.accuracy),
-        });
-        setLocating(false);
-      },
-      () => {
+    readDevicePosition("at-display")
+      .then(setPosition)
+      .catch((e) =>
         setLocationError(
-          "We could not read your location. Enter the address or nearest intersection instead.",
-        );
-        setLocating(false);
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
-    );
+          e instanceof DevicePositionUnavailable && e.reason === "unsupported"
+            ? "Location is not available in this browser."
+            : "We could not read your location. Enter the address or nearest intersection instead.",
+        ),
+      )
+      .finally(() => setLocating(false));
   }
   const [retry, setRetry] = useState({
     files: [] as File[],
@@ -366,7 +360,10 @@ export function CommunitySubmissionForm({
       hours: field("hours") || null,
       correction_for: correctionFor || null,
       exact_geometry: position
-        ? { type: "Point", coordinates: [position.longitude, position.latitude] }
+        ? {
+            type: "Point",
+            coordinates: [position.longitude, position.latitude],
+          }
         : null,
     };
     if (!policy) {
@@ -393,19 +390,28 @@ export function CommunitySubmissionForm({
         idempotency_key: key(input),
       });
       let received = 0;
+      let unplaced = 0;
       let uploadMessage = "";
+      const device_position = toUploadPosition(position);
       try {
         for (const file of attachments) {
-          await client.upload(collection.slug, r.id, file, {
+          const receipt = await client.upload(collection.slug, r.id, file, {
             caption: field("caption"),
             attribution: field("attribution"),
             rights_confirmed: input.consent.accepted,
             consent_version: policy.version,
+            device_position,
           });
           received++;
+          if (receipt.position_captured === false && !device_position)
+            unplaced++;
         }
         if (received)
-          uploadMessage = `${received} attachment(s) received for editorial review.`;
+          uploadMessage =
+            `${received} attachment(s) received for editorial review.` +
+            (unplaced
+              ? " Your photo(s) carried no location data; editors will place the display from the street you gave."
+              : "");
       } catch (error) {
         uploadMessage = `${received} attachment(s) received. Remaining attachments need to be retried: ${message(error)}`;
       }
@@ -442,6 +448,7 @@ export function CommunitySubmissionForm({
           initialMessage={retry.message}
           guidelinesHref={guidelinesHref}
           termsHref={termsHref}
+          devicePosition={toUploadPosition(position)}
         />
       </section>
     );
@@ -536,8 +543,8 @@ export function CommunitySubmissionForm({
       </div>
       <p id={locationHelpId} className="smcm-help">
         If you are standing at the display, this pins it for editors. Photo
-        location data is read the same way. Both stay private; the public
-        guide shows only the street or neighborhood editors approve.
+        location data is read the same way. Both stay private; the public guide
+        shows only the street or neighborhood editors approve.
       </p>
       <label>
         Dates and visiting hours
@@ -580,7 +587,57 @@ export function CommunitySubmissionForm({
         questions. Your name and email stay private; use the public credit field
         if you want attribution.
       </p>
-      <CommunityMediaFields onFiles={setAttachments} />
+      <CommunityMediaFields
+        onFiles={(files) => {
+          setAttachments(files);
+          if (!files.length) setAtDisplay("unanswered");
+        }}
+      />
+      {attachments.length > 0 && !position && atDisplay === "unanswered" && (
+        <div
+          className="smcm-at-display"
+          role="group"
+          aria-labelledby={atDisplayId}
+          aria-describedby={`${atDisplayId}-why`}
+        >
+          <p>
+            <strong id={atDisplayId}>Are you at this display right now?</strong>{" "}
+            <span id={`${atDisplayId}-why`}>
+              Most phones do not save a location inside the photo. Pinning where
+              you stand helps editors put it on the right block; it stays
+              private.
+            </span>
+          </p>
+          {locationError && (
+            <p role="alert" className="smcm-help">
+              {locationError}
+            </p>
+          )}
+          <div className="smcm-form-actions">
+            <button
+              type="button"
+              className="smcm-button"
+              disabled={busy || locating}
+              onClick={readCurrentLocation}
+            >
+              {locating ? "Reading your location…" : "Yes, pin my location"}
+            </button>
+            <button
+              type="button"
+              className="smcm-button smcm-button-quiet"
+              disabled={busy}
+              onClick={() => setAtDisplay("no")}
+            >
+              No, I’m somewhere else
+            </button>
+          </div>
+        </div>
+      )}
+      {attachments.length > 0 && !position && atDisplay === "no" && (
+        <p className="smcm-help" role="status">
+          No problem. Editors will place it from the street you typed above.
+        </p>
+      )}
       {policy ? (
         <PublicationPermission
           policy={policy}
