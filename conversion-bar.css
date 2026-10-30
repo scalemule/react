@@ -108,6 +108,8 @@
   display: grid;
   gap: 8px;
   min-width: 0;
+  /* Fine print wraps under the actions instead of widening the column and squeezing the title. */
+  max-width: var(--sm-bar-cta-width, 36rem);
 }
 .sm-conversion-bar__row {
   display: flex;
