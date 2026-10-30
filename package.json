@@ -1,6 +1,6 @@
 {
   "name": "@scalemule/react",
-  "version": "0.0.25",
+  "version": "0.0.26",
   "description": "Official React hooks and components for ScaleMule Backend-as-a-Service",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
@@ -16,13 +16,20 @@
       "import": "./dist/community-maps/index.mjs",
       "require": "./dist/community-maps/index.js"
     },
-    "./community-maps.css": "./community-maps.css"
+    "./community-maps.css": "./community-maps.css",
+    "./conversion-bar": {
+      "types": "./dist/conversion-bar/index.d.ts",
+      "import": "./dist/conversion-bar/index.mjs",
+      "require": "./dist/conversion-bar/index.js"
+    },
+    "./conversion-bar.css": "./conversion-bar.css"
   },
   "files": [
     "dist",
     "README.md",
     "LICENSE",
     "community-maps.css",
+    "conversion-bar.css",
     "scripts/community-map-assets.mjs"
   ],
   "scripts": {

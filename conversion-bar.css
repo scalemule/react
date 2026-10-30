@@ -1,0 +1,211 @@
+/* ScaleMule React - ConversionBar
+   A fixed bottom bar that asks for one thing. Every colour and face is a custom
+   property so the host app themes it from its own tokens:
+
+   --sm-bar-bg          background (default: deep navy)
+   --sm-bar-ink         text on the bar
+   --sm-bar-muted       secondary text
+   --sm-bar-rule        hairlines and field borders
+   --sm-bar-accent      top rule and focus ring
+   --sm-bar-font        UI face
+   --sm-bar-title-font  title face (a serif reads editorial)
+   --sm-bar-width       content width
+   --sm-bar-offset      space for another fixed element under the bar (an audio player)
+   --sm-bar-z           stacking level (stays below a cookie consent card at 9999)
+*/
+
+.sm-conversion-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: var(--sm-bar-offset, 0px);
+  z-index: var(--sm-bar-z, 900);
+  box-sizing: border-box;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  border-top: 3px solid var(--sm-bar-accent, #3d7bff);
+  background: var(--sm-bar-bg, #0d1b3e);
+  color: var(--sm-bar-ink, #ffffff);
+  font-family: var(--sm-bar-font, system-ui, -apple-system, "Segoe UI", sans-serif);
+  box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.24);
+}
+.sm-conversion-bar[data-motion="rise"] {
+  animation: sm-conversion-bar-rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes sm-conversion-bar-rise {
+  from { transform: translateY(105%); }
+  to { transform: translateY(0); }
+}
+.sm-conversion-bar *,
+.sm-conversion-bar *::before,
+.sm-conversion-bar *::after {
+  box-sizing: border-box;
+}
+
+.sm-conversion-bar__inner {
+  max-width: var(--sm-bar-width, 1180px);
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  column-gap: 24px;
+  padding: 16px 24px;
+}
+
+.sm-conversion-bar__lead {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+.sm-conversion-bar__brand {
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+.sm-conversion-bar__brand img,
+.sm-conversion-bar__brand svg {
+  display: block;
+  width: 44px;
+  height: 44px;
+}
+.sm-conversion-bar__copy {
+  min-width: 0;
+}
+.sm-conversion-bar__title {
+  margin: 0;
+  font: 400 clamp(20px, 2vw, 28px) / 1.12 var(--sm-bar-title-font, Georgia, "Times New Roman", serif);
+  letter-spacing: -0.01em;
+  color: inherit;
+  text-wrap: balance;
+}
+.sm-conversion-bar__description {
+  margin: 5px 0 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--sm-bar-muted, rgba(255, 255, 255, 0.78));
+}
+
+.sm-conversion-bar__cta {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.sm-conversion-bar__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.sm-conversion-bar__actions,
+.sm-conversion-bar__secondary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.sm-conversion-bar__fine {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--sm-bar-muted, rgba(255, 255, 255, 0.72));
+}
+.sm-conversion-bar__fine a,
+.sm-conversion-bar__fine button,
+.sm-conversion-bar__details a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.sm-conversion-bar__expand,
+.sm-conversion-bar__dismiss {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: 600 13px / 1 var(--sm-bar-font, system-ui, sans-serif);
+  opacity: 0.85;
+  transition: opacity 0.15s ease, background 0.15s ease;
+}
+.sm-conversion-bar__expand:hover,
+.sm-conversion-bar__dismiss:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.12);
+}
+.sm-conversion-bar :focus-visible {
+  outline: 2px solid var(--sm-bar-accent, #3d7bff);
+  outline-offset: 2px;
+}
+.sm-conversion-bar__expand svg {
+  transition: transform 0.2s ease;
+}
+.sm-conversion-bar[data-expanded="true"] .sm-conversion-bar__expand svg {
+  transform: rotate(180deg);
+}
+
+.sm-conversion-bar__details {
+  max-width: var(--sm-bar-width, 1180px);
+  margin: 0 auto;
+  padding: 14px 24px 18px;
+  border-top: 1px solid var(--sm-bar-rule, rgba(255, 255, 255, 0.18));
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--sm-bar-muted, rgba(255, 255, 255, 0.82));
+}
+.sm-conversion-bar__details[hidden] {
+  display: none;
+}
+
+.sm-conversion-bar--confirmed .sm-conversion-bar__inner {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+/* Only on a phone; hidden on wide screens where everything is already inline. */
+.sm-conversion-bar__phone-only {
+  display: none !important;
+}
+
+/* Phones: title and close on one line, the primary action under it, fine print last.
+   Secondary actions and details come out only when the reader asks for more. */
+@media (max-width: 760px) {
+  .sm-conversion-bar__inner {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "lead dismiss"
+      "cta cta"
+      "expand expand";
+    row-gap: 10px;
+    column-gap: 8px;
+    padding: 12px 16px 12px;
+  }
+  .sm-conversion-bar__lead { grid-area: lead; gap: 12px; }
+  .sm-conversion-bar__brand img,
+  .sm-conversion-bar__brand svg { width: 30px; height: 30px; }
+  .sm-conversion-bar__title { font-size: 19px; }
+  .sm-conversion-bar__description { display: none; }
+  .sm-conversion-bar__cta { grid-area: cta; }
+  .sm-conversion-bar__row { flex-direction: column; align-items: stretch; gap: 10px; }
+  .sm-conversion-bar__actions > *,
+  .sm-conversion-bar__secondary > * { flex: 1 1 auto; }
+  .sm-conversion-bar__secondary { display: none; }
+  .sm-conversion-bar[data-expanded="true"] .sm-conversion-bar__secondary { display: flex; }
+  .sm-conversion-bar__dismiss { grid-area: dismiss; align-self: start; margin: -8px -10px 0 0; }
+  .sm-conversion-bar__expand { grid-area: expand; justify-self: center; }
+  .sm-conversion-bar__details { padding: 12px 16px 16px; }
+  .sm-conversion-bar__phone-only { display: revert !important; }
+  .sm-conversion-bar[data-expanded="true"] .sm-conversion-bar__phone-only { display: none !important; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sm-conversion-bar[data-motion="rise"] { animation: none; }
+  .sm-conversion-bar__expand svg { transition: none; }
+}
