@@ -127,14 +127,89 @@ describe("ConversionBar", () => {
     expect(screen.getByText("Briefing")).toBeTruthy();
   });
 
-  it("a confirmation hash shows the thank-you strip, clears the hash and records the conversion", () => {
+  it("a verified confirmation hash shows and announces the thank-you strip, clears the hash and records the conversion", async () => {
     window.history.replaceState(null, "", "/news/a-story#newsletter-confirmed");
     const onConfirm = vi.fn();
-    render(<ConversionBar id="n" title="Briefing" confirmHash="newsletter-confirmed" confirmation="You're in." onConfirm={onConfirm} />);
-    expect(screen.getByRole("status").textContent).toContain("You're in.");
+    render(<ConversionBar id="n" title="Briefing" confirmHash="newsletter-confirmed" confirmationVerified confirmation="You're in." onConfirm={onConfirm} />);
+    expect(screen.getByText("You're in.")).toBeTruthy();
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 80)); });
+    expect(screen.getByRole("status").textContent).toBe("You're in.");
     expect(window.location.hash).toBe("");
     expect(readConversionBarState("n").convertedAt).toBeTypeOf("number");
     expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it("a confirmation hash without server verification is removed and ignored", () => {
+    window.history.replaceState(null, "", "/news/a-story#newsletter-confirmed");
+    const onConfirm = vi.fn();
+    render(<ConversionBar id="n" title="Briefing" confirmHash="newsletter-confirmed" confirmation="You're in." onConfirm={onConfirm} />);
+    expect(screen.queryByText("You're in.")).toBeNull();
+    expect(window.location.hash).toBe("");
+    expect(readConversionBarState("n").convertedAt).toBeUndefined();
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  it("the thank-you strip survives a re-render with new props (StrictMode, inline objects)", () => {
+    window.history.replaceState(null, "", "/news/a-story#newsletter-confirmed");
+    const { rerender } = render(<ConversionBar id="n" title="Briefing" confirmHash="newsletter-confirmed" confirmationVerified confirmation="You're in." trigger={{ viewportHeights: 1 }} />);
+    rerender(<ConversionBar id="n" title="Briefing" confirmHash="newsletter-confirmed" confirmationVerified confirmation="You're in." trigger={{ viewportHeights: 1 }} suppressed />);
+    expect(screen.getByText("You're in.")).toBeTruthy();
+  });
+
+  it("a short story that fits the screen does not count as read on load", () => {
+    const article = document.createElement("article");
+    article.setAttribute("data-conversion-target", "");
+    document.body.appendChild(article);
+    article.getBoundingClientRect = () => ({ top: 150, height: 500, bottom: 650, left: 0, right: 0, width: 0, x: 0, y: 150, toJSON() {} }) as DOMRect;
+    render(<ConversionBar id="n" title="Read on" trigger={{ target: "[data-conversion-target]" }} />);
+    expect(screen.queryByText("Read on")).toBeNull();
+    act(() => setScroll(450));
+    expect(screen.getByText("Read on")).toBeTruthy();
+  });
+
+  it("re-arms after navigating from an excluded page", () => {
+    const rules = [/^\/privacy/];
+    const { rerender } = render(<ConversionBar id="n" title="Briefing" pathname="/privacy" excludePaths={rules} trigger={{ immediate: true }} />);
+    expect(screen.queryByText("Briefing")).toBeNull();
+    rerender(<ConversionBar id="n" title="Briefing" pathname="/news/x" excludePaths={rules} trigger={{ immediate: true }} />);
+    expect(screen.getByText("Briefing")).toBeTruthy();
+  });
+
+  it("hide() lasts for the page; a dismissal lasts across navigation", () => {
+    function Later() { const bar = useConversionBar(); return <button type="button" onClick={bar.hide}>Later</button>; }
+    const { rerender } = render(<ConversionBar id="n" title="Briefing" pathname="/news/a" actions={<Later />} trigger={{ immediate: true }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Later" }));
+    expect(screen.queryByText("Briefing")).toBeNull();
+    rerender(<ConversionBar id="n" title="Briefing" pathname="/news/b" actions={<Later />} trigger={{ immediate: true }} />);
+    expect(screen.getByText("Briefing")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    rerender(<ConversionBar id="n" title="Briefing" pathname="/news/c" actions={<Later />} trigger={{ immediate: true }} />);
+    expect(screen.queryByText("Briefing")).toBeNull();
+  });
+
+  it("Escape over typed text or during composition keeps the bar", () => {
+    render(<ConversionBar id="n" title="Briefing" actions={<input aria-label="Email" />} trigger={{ immediate: true }} />);
+    const input = screen.getByLabelText("Email") as HTMLInputElement;
+    input.focus();
+    fireEvent.change(input, { target: { value: "reader@" } });
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.getByText("Briefing")).toBeTruthy();
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.keyDown(document, { key: "Escape", isComposing: true });
+    expect(screen.getByText("Briefing")).toBeTruthy();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByText("Briefing")).toBeNull();
+  });
+
+  it("steps aside when a cookie card appears after it and returns when the card goes", async () => {
+    render(<ConversionBar id="n" title="Briefing" trigger={{ immediate: true }} />);
+    expect(screen.getByText("Briefing")).toBeTruthy();
+    const card = document.createElement("div");
+    card.className = "sm-cookie-banner-wrapper";
+    await act(async () => { document.body.appendChild(card); await Promise.resolve(); });
+    expect(screen.queryByText("Briefing")).toBeNull();
+    await act(async () => { card.remove(); await Promise.resolve(); });
+    expect(screen.getByText("Briefing")).toBeTruthy();
   });
 
   it("actions reach the bar through useConversionBar", () => {

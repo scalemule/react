@@ -42,6 +42,8 @@ export interface ConversionBarTrigger {
   viewportHeights?: number;
   /** Pause between the intent signal and the bar. Default 0. */
   delayMs?: number;
+  /** Viewport heights the reader must have scrolled before any trigger counts. Default 0.5. */
+  minScrollViewports?: number;
   /** Show at once; the page itself is the invitation. */
   immediate?: boolean;
 }
@@ -56,7 +58,7 @@ export interface ConversionBarApi {
   dismiss(): void;
   /** Hide for good on this browser; records the conversion. */
   converted(): void;
-  /** Hide for this page view only. */
+  /** Hide on this page; it may come back on the next client-side navigation. */
   hide(): void;
 }
 
@@ -87,15 +89,21 @@ export interface ConversionBarProps {
   /** Pathnames that never get the bar. */
   excludePaths?: RegExp[];
   trigger?: ConversionBarTrigger;
-  /** Days a dismissal keeps the bar away. Default 14; 0 means a dismissal lasts only this page view. */
+  /** Days a dismissal keeps the bar away. Default 14; 0 means a dismissal lasts only for this page. */
   dismissDays?: number;
   /** URL fragment (without `#`) that marks a completed conversion on arrival. */
   confirmHash?: string;
+  /**
+   * The server confirmed the conversion (for example a signed subscribed-state cookie set by the
+   * sign-in callback). Without it a confirmation hash is removed and ignored, so a crafted link
+   * cannot show the thank-you strip or mark the reader converted.
+   */
+  confirmationVerified?: boolean;
   /** What to show when the confirmation hash is seen. */
   confirmation?: ReactNode;
   /** How long the confirmation strip stays. Default 7000. */
   confirmationMs?: number;
-  /** Do not appear while this selector matches (another fixed card). Default `.sm-cookie-banner-wrapper`; null disables. */
+  /** Step aside while this selector matches (another fixed card, such as cookie consent). Default `.sm-cookie-banner-wrapper`; null disables. */
   waitForSelector?: string | null;
   /** CSS custom property on `<html>` carrying the bar's height. Default `--sm-conversion-bar-height`. */
   heightVar?: string;
@@ -125,6 +133,8 @@ function pathExcluded(pathname: string, rules: RegExp[] | undefined): boolean {
 
 function intentReached(trigger: ConversionBarTrigger): boolean {
   if (trigger.immediate) return true;
+  // Intent is scrolling, never what happens to be on screen at load.
+  if (window.scrollY < window.innerHeight * (trigger.minScrollViewports ?? 0.5)) return false;
   const target = trigger.target ? document.querySelector(trigger.target) : null;
   if (target) {
     const rect = target.getBoundingClientRect();
@@ -132,8 +142,7 @@ function intentReached(trigger: ConversionBarTrigger): boolean {
     const read = (window.innerHeight - rect.top) / rect.height;
     return read >= (trigger.targetFraction ?? 0.35);
   }
-  const heights = trigger.viewportHeights ?? 1.2;
-  return window.scrollY >= window.innerHeight * heights;
+  return window.scrollY >= window.innerHeight * (trigger.viewportHeights ?? 1.2);
 }
 
 function reducedMotion(): boolean {
@@ -143,6 +152,9 @@ function reducedMotion(): boolean {
     return false;
   }
 }
+
+/** Why the bar is closed: for good in this browser session, or only on one page. */
+type Closed = null | "session" | { path: string };
 
 export function ConversionBar({
   id,
@@ -160,6 +172,7 @@ export function ConversionBar({
   trigger,
   dismissDays = 14,
   confirmHash,
+  confirmationVerified = false,
   confirmation,
   confirmationMs = 7000,
   waitForSelector = ".sm-cookie-banner-wrapper",
@@ -174,76 +187,88 @@ export function ConversionBar({
   className = "",
   style,
 }: ConversionBarProps) {
-  const [phase, setPhase] = useState<ConversionBarPhase>("idle");
+  const [phase, setPhaseState] = useState<ConversionBarPhase>("idle");
   const [expanded, setExpandedState] = useState(false);
+  const [blocked, setBlocked] = useState(false);
+  const [announced, setAnnounced] = useState(false);
   const barRef = useRef<HTMLElement | null>(null);
+  const phaseRef = useRef<ConversionBarPhase>("idle");
+  const closedRef = useRef<Closed>(null);
+  const confirmingRef = useRef(false);
+  const viewedRef = useRef(false);
   const titleId = useId();
   const detailsId = useId();
   const callbacks = useRef({ onView, onDismiss, onExpand, onConfirm, suppressWhen });
   callbacks.current = { onView, onDismiss, onExpand, onConfirm, suppressWhen };
-  const resolvedTrigger = useMemo(() => trigger ?? {}, [trigger]);
+  const triggerKey = JSON.stringify(trigger ?? {});
+  const resolvedTrigger = useMemo<ConversionBarTrigger>(() => JSON.parse(triggerKey), [triggerKey]);
   const currentPath = pathname ?? (typeof window !== "undefined" ? window.location.pathname : "");
   const excluded = pathExcluded(currentPath, excludePaths);
+  const pathRef = useRef(currentPath);
+  pathRef.current = currentPath;
 
-  const hide = useCallback(() => setPhase("hidden"), []);
+  const setPhase = useCallback((next: ConversionBarPhase) => {
+    phaseRef.current = next;
+    setPhaseState(next);
+  }, []);
+  const hide = useCallback(() => {
+    closedRef.current = { path: pathRef.current };
+    setPhase("hidden");
+  }, [setPhase]);
   const dismiss = useCallback(() => {
-    if (dismissDays > 0) markConversionBarDismissed(id);
+    if (dismissDays > 0) {
+      markConversionBarDismissed(id);
+      closedRef.current = "session";
+    } else {
+      closedRef.current = { path: pathRef.current };
+    }
     setPhase("hidden");
     callbacks.current.onDismiss?.();
-  }, [dismissDays, id]);
+  }, [dismissDays, id, setPhase]);
   const converted = useCallback(() => {
     markConversionBarConverted(id);
+    closedRef.current = "session";
     setPhase("hidden");
-  }, [id]);
+  }, [id, setPhase]);
   const setExpanded = useCallback((next: boolean) => {
     setExpandedState(next);
     callbacks.current.onExpand?.(next);
   }, []);
 
-  // Decide, arm and show. Re-runs on navigation so a bar armed on one page does not pop on an excluded one.
+  // Decide, arm and show. Re-evaluated on every navigation: an exclusion or suppression only
+  // lasts while it applies, while a dismissal or conversion lasts for the session.
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === "undefined" || confirmingRef.current) return;
     if (confirmHash && window.location.hash === "#" + confirmHash) {
-      markConversionBarConverted(id);
       try { window.history.replaceState(window.history.state, "", window.location.pathname + window.location.search); } catch { /* hash stays; harmless */ }
-      setPhase("confirmed");
-      callbacks.current.onConfirm?.();
-      const timer = window.setTimeout(() => setPhase("hidden"), confirmationMs);
-      return () => window.clearTimeout(timer);
+      if (confirmationVerified) {
+        confirmingRef.current = true;
+        closedRef.current = "session";
+        markConversionBarConverted(id);
+        setPhase("confirmed");
+        callbacks.current.onConfirm?.();
+        return;
+      }
     }
-    if (suppressed || excluded) { setPhase("hidden"); return; }
-    if (phase === "visible" || phase === "hidden") return;
-    if (conversionBarSuppressedByState(readConversionBarState(id), dismissDays)) { setPhase("hidden"); return; }
-    try { if (callbacks.current.suppressWhen?.()) { setPhase("hidden"); return; } } catch { /* treat as not suppressed */ }
+    const closed = closedRef.current;
+    if (closed && closed !== "session" && closed.path !== currentPath) closedRef.current = null;
+    if (closedRef.current) { setPhase("hidden"); return; }
+    let quiet = suppressed || excluded || conversionBarSuppressedByState(readConversionBarState(id), dismissDays);
+    if (!quiet) { try { quiet = Boolean(callbacks.current.suppressWhen?.()); } catch { /* treat as not suppressed */ } }
+    if (quiet) { setPhase("hidden"); return; }
+    if (phaseRef.current === "visible") return;
+    setPhase("idle");
 
     let cancelled = false;
     let timer = 0;
-    let observer: MutationObserver | null = null;
-    const show = () => {
-      if (cancelled) return;
-      setPhase("visible");
-      callbacks.current.onView?.();
-    };
-    const whenClear = () => {
-      if (cancelled) return;
-      if (waitForSelector && document.querySelector(waitForSelector)) {
-        observer = new MutationObserver(() => {
-          if (!document.querySelector(waitForSelector)) { observer?.disconnect(); observer = null; whenClear(); }
-        });
-        observer.observe(document.body, { childList: true, subtree: true });
-        return;
-      }
+    const show = () => { if (!cancelled) setPhase("visible"); };
+    const check = () => {
+      if (cancelled || !intentReached(resolvedTrigger)) return;
+      window.removeEventListener("scroll", check);
+      window.removeEventListener("resize", check);
       const delay = resolvedTrigger.delayMs ?? 0;
       if (delay > 0) timer = window.setTimeout(show, delay);
       else show();
-    };
-    const check = () => {
-      if (cancelled) return;
-      if (intentReached(resolvedTrigger)) {
-        window.removeEventListener("scroll", check);
-        window.removeEventListener("resize", check);
-        whenClear();
-      }
     };
     window.addEventListener("scroll", check, { passive: true });
     window.addEventListener("resize", check);
@@ -253,30 +278,58 @@ export function ConversionBar({
       window.removeEventListener("scroll", check);
       window.removeEventListener("resize", check);
       window.clearTimeout(timer);
-      observer?.disconnect();
     };
-    // `phase` is read, not a dependency: the effect must not re-arm when it hides itself.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, currentPath, suppressed, excluded, dismissDays, confirmHash, confirmationMs, waitForSelector, resolvedTrigger]);
+  }, [id, currentPath, suppressed, excluded, dismissDays, confirmHash, confirmationVerified, resolvedTrigger, setPhase]);
 
-  // Publish the bar's height so other fixed elements can sit above it.
+  // The thank-you strip leaves on its own.
+  useEffect(() => {
+    if (phase !== "confirmed") return;
+    const timer = window.setTimeout(() => setPhase("hidden"), confirmationMs);
+    const announce = window.setTimeout(() => setAnnounced(true), 60);
+    return () => { window.clearTimeout(timer); window.clearTimeout(announce); };
+  }, [phase, confirmationMs, setPhase]);
+
+  // Step aside while another fixed card (cookie consent) is on screen; it may appear after the bar.
+  useEffect(() => {
+    if (phase !== "visible" && phase !== "confirmed") return;
+    if (!waitForSelector) { setBlocked(false); return; }
+    const update = () => setBlocked(Boolean(document.querySelector(waitForSelector)));
+    update();
+    const observer = new MutationObserver(update);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [phase, waitForSelector]);
+
+  // A view counts once the reader can actually see the bar.
+  useEffect(() => {
+    if (phase === "visible" && !blocked && !viewedRef.current) {
+      viewedRef.current = true;
+      callbacks.current.onView?.();
+    }
+  }, [phase, blocked]);
+
+  // Publish the bar's height so other fixed elements (and page padding) can make room.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const root = document.documentElement;
     const bar = barRef.current;
-    if (!bar || (phase !== "visible" && phase !== "confirmed")) { root.style.removeProperty(heightVar); return; }
+    if (!bar || blocked || (phase !== "visible" && phase !== "confirmed")) { root.style.removeProperty(heightVar); return; }
     const measure = () => root.style.setProperty(heightVar, `${Math.round(bar.getBoundingClientRect().height)}px`);
     measure();
     const observer = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
     observer?.observe(bar);
     return () => { observer?.disconnect(); root.style.removeProperty(heightVar); };
-  }, [phase, expanded, heightVar]);
+  }, [phase, expanded, blocked, heightVar]);
 
-  // Escape closes the bar when focus is inside it.
+  // Escape closes the bar when focus is inside it, but never mid-composition or over typed text.
   useEffect(() => {
     if (phase !== "visible") return;
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && barRef.current?.contains(document.activeElement)) dismiss();
+      if (event.key !== "Escape" || event.isComposing || event.defaultPrevented) return;
+      const active = document.activeElement;
+      if (!active || !barRef.current?.contains(active)) return;
+      if ((active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) && active.value) return;
+      dismiss();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -284,18 +337,17 @@ export function ConversionBar({
 
   const api = useMemo<ConversionBarApi>(() => ({ phase, expanded, setExpanded, dismiss, converted, hide }), [phase, expanded, setExpanded, dismiss, converted, hide]);
 
-  if (phase === "idle" || phase === "hidden") return null;
+  if (phase === "idle" || phase === "hidden" || blocked) return null;
 
   const motion = reducedMotion() ? "none" : "rise";
 
   if (phase === "confirmed") {
+    const text = confirmation ?? "Thank you. You're all set.";
     return (
       <aside
         ref={barRef}
         className={`sm-conversion-bar sm-conversion-bar--confirmed ${className}`.trim()}
         style={style}
-        role="status"
-        aria-live="polite"
         data-phase="confirmed"
         data-motion={motion}
       >
@@ -303,7 +355,9 @@ export function ConversionBar({
           <div className="sm-conversion-bar__lead">
             {brand && <div className="sm-conversion-bar__brand">{brand}</div>}
             <div className="sm-conversion-bar__copy">
-              <p className="sm-conversion-bar__title">{confirmation ?? "Thank you. You're all set."}</p>
+              <p className="sm-conversion-bar__title" aria-hidden="true">{text}</p>
+              {/* Filled after insertion so screen readers announce it. */}
+              <p className="sm-conversion-bar__sr" role="status">{announced ? text : null}</p>
             </div>
           </div>
           <button type="button" className="sm-conversion-bar__dismiss" onClick={hide} aria-label={dismissLabel}>

@@ -12,6 +12,9 @@
    --sm-bar-width       content width
    --sm-bar-offset      space for another fixed element under the bar (an audio player)
    --sm-bar-z           stacking level (stays below a cookie consent card at 9999)
+
+   The bar publishes its height as --sm-conversion-bar-height on <html> while shown; give the
+   page `padding-bottom: var(--sm-conversion-bar-height, 0px)` so nothing ends up beneath it.
 */
 
 .sm-conversion-bar {
@@ -27,6 +30,22 @@
   color: var(--sm-bar-ink, #ffffff);
   font-family: var(--sm-bar-font, system-ui, -apple-system, "Segoe UI", sans-serif);
   box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.24);
+  /* Never taller than the screen (zoom, landscape phones): the bar scrolls inside itself. */
+  max-height: calc(100vh - var(--sm-bar-offset, 0px) - 16px);
+  max-height: calc(100dvh - var(--sm-bar-offset, 0px) - 16px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.sm-conversion-bar__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
 }
 .sm-conversion-bar[data-motion="rise"] {
   animation: sm-conversion-bar-rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
