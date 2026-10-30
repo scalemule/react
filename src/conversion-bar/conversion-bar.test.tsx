@@ -201,6 +201,30 @@ describe("ConversionBar", () => {
     expect(screen.queryByText("Briefing")).toBeNull();
   });
 
+  it("never paints while the cookie card is already up", () => {
+    const card = document.createElement("div");
+    card.className = "sm-cookie-banner-wrapper";
+    document.body.appendChild(card);
+    const onView = vi.fn();
+    render(<ConversionBar id="n" title="Briefing" onView={onView} trigger={{ immediate: true }} />);
+    expect(document.querySelector(".sm-conversion-bar")).toBeNull();
+    expect(onView).not.toHaveBeenCalled();
+  });
+
+  it("the thank-you strip waits behind the cookie card instead of expiring unseen", async () => {
+    vi.useFakeTimers();
+    window.history.replaceState(null, "", "/news/a-story#newsletter-confirmed");
+    const card = document.createElement("div");
+    card.className = "sm-cookie-banner-wrapper";
+    document.body.appendChild(card);
+    render(<ConversionBar id="n" title="Briefing" confirmHash="newsletter-confirmed" confirmationVerified confirmation="You're in." confirmationMs={1000} />);
+    await act(async () => { vi.advanceTimersByTime(5000); });
+    await act(async () => { card.remove(); await Promise.resolve(); });
+    expect(screen.getByText("You're in.")).toBeTruthy();
+    await act(async () => { vi.advanceTimersByTime(1500); });
+    expect(screen.queryByText("You're in.")).toBeNull();
+  });
+
   it("steps aside when a cookie card appears after it and returns when the card goes", async () => {
     render(<ConversionBar id="n" title="Briefing" trigger={{ immediate: true }} />);
     expect(screen.getByText("Briefing")).toBeTruthy();

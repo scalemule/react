@@ -261,7 +261,12 @@ export function ConversionBar({
 
     let cancelled = false;
     let timer = 0;
-    const show = () => { if (!cancelled) setPhase("visible"); };
+    const show = () => {
+      if (cancelled) return;
+      // Decide about another fixed card in the same render, so the bar never flashes before stepping aside.
+      setBlocked(Boolean(waitForSelector && document.querySelector(waitForSelector)));
+      setPhase("visible");
+    };
     const check = () => {
       if (cancelled || !intentReached(resolvedTrigger)) return;
       window.removeEventListener("scroll", check);
@@ -279,15 +284,15 @@ export function ConversionBar({
       window.removeEventListener("resize", check);
       window.clearTimeout(timer);
     };
-  }, [id, currentPath, suppressed, excluded, dismissDays, confirmHash, confirmationVerified, resolvedTrigger, setPhase]);
+  }, [id, currentPath, suppressed, excluded, dismissDays, confirmHash, confirmationVerified, resolvedTrigger, waitForSelector, setPhase]);
 
-  // The thank-you strip leaves on its own.
+  // The thank-you strip leaves on its own, counting only while it can be seen.
   useEffect(() => {
-    if (phase !== "confirmed") return;
+    if (phase !== "confirmed" || blocked) return;
     const timer = window.setTimeout(() => setPhase("hidden"), confirmationMs);
     const announce = window.setTimeout(() => setAnnounced(true), 60);
     return () => { window.clearTimeout(timer); window.clearTimeout(announce); };
-  }, [phase, confirmationMs, setPhase]);
+  }, [phase, blocked, confirmationMs, setPhase]);
 
   // Step aside while another fixed card (cookie consent) is on screen; it may appear after the bar.
   useEffect(() => {
