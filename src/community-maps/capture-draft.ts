@@ -49,11 +49,21 @@ interface StoredFile {
   lastModified: number;
   data: ArrayBuffer;
 }
+/**
+ * A queue the device refused to store lives here for the life of the page, so a
+ * re-mounted form (new props, "Reload saved queue") still finds its photos.
+ */
+const pageQueue = {
+  files: new Map<string, File>(),
+  drafts: new Map<string, CaptureDraft>(),
+};
+/** Safari drops IndexedDB connections when a page is backgrounded; reconnect once. */
+const lostConnection = (e: unknown) =>
+  e instanceof DOMException &&
+  (e.name === "InvalidStateError" || e.name === "UnknownError");
 /** Photos stay in IndexedDB only until sent/discarded. Never store credentials here. */
 export class CaptureDraftStore {
   private db?: IDBDatabase;
-  private memory = new Map<string, File>();
-  private drafts = new Map<string, CaptureDraft>();
   /**
    * The device refused to save (private browsing, full storage, restricted
    * in-app browser). The queue keeps working in this page only.
@@ -62,16 +72,7 @@ export class CaptureDraftStore {
   async open() {
     if (typeof indexedDB === "undefined") return false;
     try {
-      this.db = await new Promise<IDBDatabase>((resolve, reject) => {
-        const request = indexedDB.open("sm_community_capture_v1", 1);
-        request.onupgradeneeded = () => {
-          request.result.createObjectStore("drafts", { keyPath: "key" });
-          request.result.createObjectStore("files");
-        };
-        request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
-        request.onblocked = () => reject(new Error("Draft storage is blocked"));
-      });
+      this.db = await connect();
       this.db.onversionchange = () => this.close();
       const tx = this.db.transaction(["drafts", "files"], "readwrite");
       const cursor = tx.objectStore("drafts").openCursor();
@@ -94,8 +95,14 @@ export class CaptureDraftStore {
     }
   }
   async load(key: string): Promise<CaptureDraft | undefined> {
-    if (this.memoryOnly || !this.db) return this.drafts.get(key);
-    return read(this.db.transaction("drafts").objectStore("drafts").get(key));
+    const kept = pageQueue.drafts.get(key);
+    if (kept || !this.db) {
+      if (kept) this.memoryOnly = true;
+      return kept;
+    }
+    return this.retrying(() =>
+      read(this.db!.transaction("drafts").objectStore("drafts").get(key)),
+    );
   }
   /**
    * Saves the draft (and a file to add/remove) atomically. Resolves "device"
@@ -123,8 +130,8 @@ export class CaptureDraftStore {
         return this.remember(draft, add, remove);
       }
     let conflict = false;
-    try {
-      const tx = this.db.transaction(["drafts", "files"], "readwrite");
+    const write = () => {
+      const tx = this.db!.transaction(["drafts", "files"], "readwrite");
       const previous = tx.objectStore("drafts").get(draft.key);
       previous.onsuccess = () => {
         if ((previous.result?.revision || 0) !== draft.revision - 1) {
@@ -137,7 +144,10 @@ export class CaptureDraftStore {
           tx.objectStore("files").put(stored, `${draft.key}:${add!.id}`);
         if (remove) tx.objectStore("files").delete(`${draft.key}:${remove}`);
       };
-      await complete(tx);
+      return complete(tx);
+    };
+    try {
+      await this.retrying(write);
       return "device";
     } catch {
       if (conflict)
@@ -147,18 +157,21 @@ export class CaptureDraftStore {
       // Files already on the device stay readable; everything from now on is
       // kept in this page so the reader can still send.
       for (const { id } of draft.files) {
-        if (id === remove || this.memory.has(`${draft.key}:${id}`)) continue;
+        const k = `${draft.key}:${id}`;
+        if (id === remove || pageQueue.files.has(k)) continue;
         const file = await this.file(draft.key, id).catch(() => undefined);
-        if (file) this.memory.set(`${draft.key}:${id}`, file);
+        if (file) pageQueue.files.set(k, file);
       }
       return this.remember(draft, add, remove);
     }
   }
   async file(key: string, id: string): Promise<File | undefined> {
-    const kept = this.memory.get(`${key}:${id}`);
+    const kept = pageQueue.files.get(`${key}:${id}`);
     if (kept || !this.db) return kept;
-    const value = await read<File | StoredFile | undefined>(
-      this.db.transaction("files").objectStore("files").get(`${key}:${id}`),
+    const value = await this.retrying(() =>
+      read<File | StoredFile | undefined>(
+        this.db!.transaction("files").objectStore("files").get(`${key}:${id}`),
+      ),
     );
     if (!value || value instanceof Blob) return value;
     return new File([value.data], value.name, {
@@ -166,11 +179,21 @@ export class CaptureDraftStore {
       lastModified: value.lastModified,
     });
   }
+  /** Closes the connection; a page-only queue survives for the next form. */
   close() {
     this.db?.close();
     this.db = undefined;
-    this.memory.clear();
-    this.drafts.clear();
+  }
+  private async retrying<T>(run: () => Promise<T>): Promise<T> {
+    try {
+      return await run();
+    } catch (e) {
+      if (!lostConnection(e) || typeof indexedDB === "undefined") throw e;
+      this.db?.close();
+      this.db = await connect();
+      this.db.onversionchange = () => this.close();
+      return run();
+    }
   }
   private remember(
     draft: CaptureDraft,
@@ -178,11 +201,35 @@ export class CaptureDraftStore {
     remove?: string,
   ): "memory" {
     this.memoryOnly = true;
-    this.drafts.set(draft.key, draft);
-    if (add) this.memory.set(`${draft.key}:${add.id}`, add.file);
-    if (remove) this.memory.delete(`${draft.key}:${remove}`);
+    pageQueue.drafts.set(draft.key, draft);
+    if (add) pageQueue.files.set(`${draft.key}:${add.id}`, add.file);
+    if (remove) pageQueue.files.delete(`${draft.key}:${remove}`);
+    // Keep the small draft record (batch receipt, which photos remain) on the
+    // device when it still accepts it, so a reload resumes the same submission
+    // instead of creating a second one. Bytes it refused are not retried.
+    if (this.db)
+      try {
+        const tx = this.db.transaction(["drafts", "files"], "readwrite");
+        tx.objectStore("drafts").put({ ...draft, updated: Date.now() });
+        if (remove) tx.objectStore("files").delete(`${draft.key}:${remove}`);
+        void complete(tx).catch(() => {});
+      } catch {
+        // Best effort only.
+      }
     return "memory";
   }
+}
+function connect() {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open("sm_community_capture_v1", 1);
+    request.onupgradeneeded = () => {
+      request.result.createObjectStore("drafts", { keyPath: "key" });
+      request.result.createObjectStore("files");
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+    request.onblocked = () => reject(new Error("Draft storage is blocked"));
+  });
 }
 function read<T>(request: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {

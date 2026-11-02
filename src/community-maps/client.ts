@@ -350,8 +350,9 @@ export function createCommunityMapsBrowserClient(
             reject(
               new CommunityRequestError(
                 "Upload response was interrupted. Retry this file.",
-                xhr.status >= 500 || xhr.status < 200 ? xhr.status : 502,
-                true,
+                // A 2xx without a readable body means the answer was lost; any
+                // other status (an HTML 413 or 403 page) is reported as it is.
+                xhr.status >= 200 && xhr.status < 300 ? 502 : xhr.status,
               ),
             );
             return;
@@ -400,11 +401,22 @@ export function createCommunityMapsBrowserClient(
     },
     mediaUrl: (s, id) => `${path(s)}/media/${encodeURIComponent(id)}`,
     diagnose: (s, event) => {
+      let body: string;
       try {
-        const body = JSON.stringify({ ...event, browser: browserFamily() });
-        const url = `${path(s)}/diagnostics`;
+        body = JSON.stringify({ ...event, browser: browserFamily() });
+      } catch {
+        return;
+      }
+      const url = `${path(s)}/diagnostics`;
+      // application/json keeps the beacon in CORS mode, so the Origin header
+      // the publication checks is always sent.
+      try {
         const blob = new Blob([body], { type: "application/json" });
         if (navigator.sendBeacon?.(url, blob)) return;
+      } catch {
+        // Some engines throw for non-safelisted beacon types; use fetch.
+      }
+      try {
         void fetch(url, {
           method: "POST",
           body,
@@ -426,12 +438,12 @@ export function browserFamily(ua = globalThis.navigator?.userAgent || "") {
       ? "Instagram app"
       : /GSA\//.test(ua)
         ? "Google app"
-        : /CriOS|Chrome\//.test(ua)
-          ? "Chrome"
-          : /FxiOS|Firefox\//.test(ua)
-            ? "Firefox"
-            : /EdgiOS|Edg\//.test(ua)
-              ? "Edge"
+        : /EdgiOS|EdgA\/|Edg\//.test(ua)
+          ? "Edge"
+          : /CriOS|Chrome\//.test(ua)
+            ? "Chrome"
+            : /FxiOS|Firefox\//.test(ua)
+              ? "Firefox"
               : /Safari\//.test(ua)
                 ? "Safari"
                 : "Other";

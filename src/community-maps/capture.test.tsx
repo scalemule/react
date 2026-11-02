@@ -397,6 +397,18 @@ describe("past seasons", () => {
       expect(alert.textContent).toContain("Choose a JPEG, PNG or WebP photo.");
       expect(c.upload).toHaveBeenCalledTimes(1);
     });
+    it("retries the reader check that starts every send", async () => {
+      fast();
+      const c = client();
+      const own = vi.mocked(c.ownSubmissions!);
+      await setup(c);
+      await choose(1);
+      own.mockRejectedValueOnce(new CommunityRequestError("lost", 0));
+      fireEvent.click(screen.getByRole("checkbox"));
+      await send();
+      await screen.findByText("0 waiting");
+      expect(c.upload).toHaveBeenCalledTimes(1);
+    });
     it("retries creating the street submission before any photo is sent", async () => {
       fast();
       const c = client();

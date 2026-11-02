@@ -118,4 +118,50 @@ describe("private capture queue persistence", () => {
     expect(await store.file(key, "a")).toBeUndefined();
     store.close();
   });
+  it("keeps a page-only queue for a re-mounted form", async () => {
+    const put = IDBObjectStore.prototype.put;
+    vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(function (
+      this: IDBObjectStore,
+      ...args: Parameters<IDBObjectStore["put"]>
+    ) {
+      if (this.name === "files")
+        throw new DOMException("quota", "QuotaExceededError");
+      return put.apply(this, args);
+    });
+    const key = crypto.randomUUID(),
+      first = new CaptureDraftStore();
+    await first.open();
+    const input = {
+      ...draft(key),
+      files: [{ id: "a", name: "a.jpg", size: 1, type: "image/jpeg" }],
+    };
+    expect(
+      await first.save(input, { id: "a", file: new File(["x"], "a.jpg") }),
+    ).toBe("memory");
+    first.close();
+    const second = new CaptureDraftStore();
+    await second.open();
+    expect((await second.load(key))?.files).toHaveLength(1);
+    expect(second.memoryOnly).toBe(true);
+    expect(await (await second.file(key, "a"))?.text()).toBe("x");
+    second.close();
+  });
+  it("reconnects once when Safari dropped the storage connection", async () => {
+    const key = crypto.randomUUID(),
+      store = new CaptureDraftStore();
+    await store.open();
+    (store as unknown as { db: IDBDatabase }).db.close();
+    expect(
+      await store.save(
+        {
+          ...draft(key),
+          files: [{ id: "a", name: "a.jpg", size: 1, type: "image/jpeg" }],
+        },
+        { id: "a", file: new File(["x"], "a.jpg") },
+      ),
+    ).toBe("device");
+    expect(store.memoryOnly).toBe(false);
+    expect(await (await store.file(key, "a"))?.text()).toBe("x");
+    store.close();
+  });
 });

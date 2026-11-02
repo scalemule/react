@@ -114,6 +114,23 @@ function OpenStreetCapture({
       ...event,
     });
   }
+  function reportFailure(
+    kind: "submit_failed" | "upload_failed",
+    stage: string,
+    e: SendFailure,
+    extra: Partial<CommunityDiagnostic> = {},
+  ) {
+    const cause = e.cause instanceof CommunityRequestError ? e.cause : null;
+    report({
+      kind,
+      stage,
+      status: cause?.status ?? null,
+      code: cause?.code ?? null,
+      reference: cause?.reference ?? null,
+      attempts: e.attempts,
+      ...extra,
+    });
+  }
   /** Sends once, then resends retryable failures (dropped connection, 5xx, timeout). */
   async function attempt<T>(
     what: string,
@@ -124,11 +141,9 @@ function OpenStreetCapture({
       try {
         return await run();
       } catch (e) {
-        if (
-          signal.aborted ||
-          (e instanceof DOMException && e.name === "AbortError")
-        )
-          throw e;
+        if (signal.aborted)
+          throw new DOMException("Upload paused", "AbortError");
+        if (e instanceof DOMException && e.name === "AbortError") throw e;
         const retryable = e instanceof CommunityRequestError && e.retryable;
         if (!retryable || tries > RETRY_DELAYS_MS.length)
           throw new SendFailure(message(e), e, tries);
@@ -192,7 +207,12 @@ function OpenStreetCapture({
     }
     void load().catch((e) => {
       if (closed) return;
-      setError(message(e));
+      setError(
+        message(e) +
+          (e instanceof CommunityRequestError && e.reference
+            ? ` (Reference ${e.reference})`
+            : ""),
+      );
       if (!(e instanceof DOMException && e.name === "AbortError"))
         client.diagnose?.(collection.slug, {
           kind: "load_failed",
@@ -423,11 +443,13 @@ function OpenStreetCapture({
       await adding.current;
       await writes.current;
       // A fresh identity check prevents uploading another account's restored local queue.
-      const reader = await client.ownSubmissions!(
-        collection.slug,
-        undefined,
-        controller.signal,
-      );
+      const reader = await attempt("your queue", controller.signal, () =>
+        client.ownSubmissions!(collection.slug, undefined, controller.signal),
+      ).catch((e) => {
+        if (e instanceof SendFailure)
+          reportFailure("submit_failed", "session", e);
+        throw e;
+      });
       if (`${collection.slug}:${reader.reader_key}` !== current.current.key)
         throw new Error("Your reader session changed. Reload before sending.");
       while (current.current.files.length) {
@@ -475,22 +497,8 @@ function OpenStreetCapture({
           const receipt = await attempt("your street", controller.signal, () =>
             client.submit(collection.slug, input),
           ).catch((e) => {
-            if (e instanceof SendFailure) {
-              const cause = e.cause;
-              report({
-                kind: "submit_failed",
-                stage: "submit",
-                status:
-                  cause instanceof CommunityRequestError ? cause.status : null,
-                code:
-                  cause instanceof CommunityRequestError ? cause.code : null,
-                reference:
-                  cause instanceof CommunityRequestError
-                    ? cause.reference
-                    : null,
-                attempts: e.attempts,
-              });
-            }
+            if (e instanceof SendFailure)
+              reportFailure("submit_failed", "submit", e);
             throw e;
           });
           await change((v) => ({
@@ -525,7 +533,14 @@ function OpenStreetCapture({
             ),
           }));
         const saved = current.current!.files[0];
-        const file = await store.current!.file(current.current!.key, saved.id);
+        const file = await store
+          .current!.file(current.current!.key, saved.id)
+          .catch(() => {
+            report({ kind: "storage_degraded", stage: "read" });
+            throw new Error(
+              `${saved.name} could not be read from this device. Remove it and select it again.`,
+            );
+          });
         if (!file)
           throw new Error(
             `${saved.name} is no longer stored on this device. Remove it and select it again.`,
@@ -550,22 +565,12 @@ function OpenStreetCapture({
             },
           ),
         ).catch((e) => {
-          if (e instanceof SendFailure) {
-            const cause = e.cause;
-            report({
-              kind: "upload_failed",
-              stage: "upload",
-              status:
-                cause instanceof CommunityRequestError ? cause.status : null,
-              code: cause instanceof CommunityRequestError ? cause.code : null,
-              reference:
-                cause instanceof CommunityRequestError ? cause.reference : null,
-              attempts: e.attempts,
+          if (e instanceof SendFailure)
+            reportFailure("upload_failed", "upload", e, {
               file_type: file.type || null,
               file_size: file.size,
               submission_id: saved.upload!.submission,
             });
-          }
           throw e;
         });
         await change(
