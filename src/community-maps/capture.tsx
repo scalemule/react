@@ -4,7 +4,11 @@ import {
   prepareCommunityMapAttachment,
   type CommunityMapCollection,
 } from "@scalemule/sdk";
-import type { CommunityMapsClient } from "./client";
+import {
+  CommunityRequestError,
+  type CommunityDiagnostic,
+  type CommunityMapsClient,
+} from "./client";
 import {
   CaptureDraftStore,
   type CaptureDraft,
@@ -22,6 +26,30 @@ import {
 import { CommunitySubmissionForm } from "./components";
 const message = (e: unknown) =>
   e instanceof Error ? e.message : "Please try again.";
+/** Waits before each automatic resend of a retryable failure. */
+export const RETRY_DELAYS_MS = [2000, 6000, 15000];
+const pause = (ms: number, signal: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    const done = () => {
+      clearTimeout(timer);
+      reject(new DOMException("Upload paused", "AbortError"));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", done);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", done, { once: true });
+  });
+/** A send that still failed after automatic retries. */
+class SendFailure extends Error {
+  constructor(
+    message: string,
+    readonly cause: unknown,
+    readonly attempts: number,
+  ) {
+    super(message);
+  }
+}
 
 interface StreetCaptureProps {
   client: CommunityMapsClient;
@@ -64,6 +92,7 @@ function OpenStreetCapture({
   const upload = useRef<AbortController>();
   const alive = useRef(true);
   const busyRef = useRef(false);
+  const memoryReported = useRef(false);
   const [draft, setDraft] = useState<CaptureDraft>();
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
@@ -78,6 +107,39 @@ function OpenStreetCapture({
   const [storageError, setStorageError] = useState("");
   const policy = collection.submission_policy;
   const pending = draft?.files.length || 0;
+  function report(event: CommunityDiagnostic) {
+    client.diagnose?.(collection.slug, {
+      storage: store.current?.memoryOnly ? "memory" : "indexeddb",
+      online: typeof navigator === "undefined" ? null : navigator.onLine,
+      ...event,
+    });
+  }
+  /** Sends once, then resends retryable failures (dropped connection, 5xx, timeout). */
+  async function attempt<T>(
+    what: string,
+    signal: AbortSignal,
+    run: () => Promise<T>,
+  ): Promise<T> {
+    for (let tries = 1; ; tries++) {
+      try {
+        return await run();
+      } catch (e) {
+        if (
+          signal.aborted ||
+          (e instanceof DOMException && e.name === "AbortError")
+        )
+          throw e;
+        const retryable = e instanceof CommunityRequestError && e.retryable;
+        if (!retryable || tries > RETRY_DELAYS_MS.length)
+          throw new SendFailure(message(e), e, tries);
+        if (alive.current)
+          setStatus(
+            `Connection problem while sending ${what}. Trying again (${tries + 1} of ${RETRY_DELAYS_MS.length + 1})…`,
+          );
+        await pause(RETRY_DELAYS_MS[tries - 1], signal);
+      }
+    }
+  }
   useEffect(() => {
     alive.current = true;
     storageFailed.current = false;
@@ -129,7 +191,16 @@ function OpenStreetCapture({
         );
     }
     void load().catch((e) => {
-      if (!closed) setError(message(e));
+      if (closed) return;
+      setError(message(e));
+      if (!(e instanceof DOMException && e.name === "AbortError"))
+        client.diagnose?.(collection.slug, {
+          kind: "load_failed",
+          stage: "open",
+          status: e instanceof CommunityRequestError ? e.status : null,
+          reference: e instanceof CommunityRequestError ? e.reference : null,
+          online: navigator.onLine,
+        });
     });
     return () => {
       closed = true;
@@ -185,8 +256,13 @@ function OpenStreetCapture({
     // until reload: another tab may own a newer revision of this private queue.
     const saved = writes.current.then(async () => {
       try {
-        await store.current!.save(value, add, remove);
+        const where = await store.current!.save(value, add, remove);
         committed.current = value;
+        if (where === "memory" && !memoryReported.current) {
+          memoryReported.current = true;
+          if (alive.current) setPersistent(false);
+          report({ kind: "storage_degraded", stage: add ? "add" : "save" });
+        }
       } catch (e) {
         storageFailed.current = true;
         current.current = committed.current;
@@ -395,7 +471,28 @@ function OpenStreetCapture({
             throw new Error(
               "Publication permission changed. Start a new street batch before sending.",
             );
-          const receipt = await client.submit(collection.slug, d.batch!.input);
+          const input = d.batch!.input;
+          const receipt = await attempt("your street", controller.signal, () =>
+            client.submit(collection.slug, input),
+          ).catch((e) => {
+            if (e instanceof SendFailure) {
+              const cause = e.cause;
+              report({
+                kind: "submit_failed",
+                stage: "submit",
+                status:
+                  cause instanceof CommunityRequestError ? cause.status : null,
+                code:
+                  cause instanceof CommunityRequestError ? cause.code : null,
+                reference:
+                  cause instanceof CommunityRequestError
+                    ? cause.reference
+                    : null,
+                attempts: e.attempts,
+              });
+            }
+            throw e;
+          });
           await change((v) => ({
             ...v,
             batch: { ...v.batch!, id: receipt.id },
@@ -434,22 +531,43 @@ function OpenStreetCapture({
             `${saved.name} is no longer stored on this device. Remove it and select it again.`,
           );
         setProgress({ id: saved.id, percent: 0 });
-        const receipt = await client.upload(
-          collection.slug,
-          saved.upload!.submission,
-          file,
-          {
-            ...saved.upload!,
-            rights_confirmed: true,
-            idempotency_key: saved.id,
-          },
-          {
-            signal: controller.signal,
-            onProgress: (percent) => {
-              if (alive.current) setProgress({ id: saved.id, percent });
+        // The idempotency key makes a resend after a lost response safe.
+        const receipt = await attempt("this photo", controller.signal, () =>
+          client.upload(
+            collection.slug,
+            saved.upload!.submission,
+            file,
+            {
+              ...saved.upload!,
+              rights_confirmed: true,
+              idempotency_key: saved.id,
             },
-          },
-        );
+            {
+              signal: controller.signal,
+              onProgress: (percent) => {
+                if (alive.current) setProgress({ id: saved.id, percent });
+              },
+            },
+          ),
+        ).catch((e) => {
+          if (e instanceof SendFailure) {
+            const cause = e.cause;
+            report({
+              kind: "upload_failed",
+              stage: "upload",
+              status:
+                cause instanceof CommunityRequestError ? cause.status : null,
+              code: cause instanceof CommunityRequestError ? cause.code : null,
+              reference:
+                cause instanceof CommunityRequestError ? cause.reference : null,
+              attempts: e.attempts,
+              file_type: file.type || null,
+              file_size: file.size,
+              submission_id: saved.upload!.submission,
+            });
+          }
+          throw e;
+        });
         await change(
           (v) => ({
             ...v,
@@ -474,12 +592,20 @@ function OpenStreetCapture({
           );
       }
     } catch (e) {
-      if (alive.current)
+      if (alive.current) {
+        setStatus(
+          sent
+            ? `${sent} attachment${sent === 1 ? "" : "s"} received for review.`
+            : "",
+        );
         setError(
           e instanceof DOMException && e.name === "AbortError"
             ? "Sending paused. Resume when you’re ready."
-            : message(e),
+            : e instanceof SendFailure
+              ? sendFailureText(e, store.current?.memoryOnly === true)
+              : message(e),
         );
+      }
     } finally {
       busyRef.current = false;
       if (alive.current) {
@@ -906,4 +1032,19 @@ function CapturePreview({
       )}
     </div>
   );
+}
+
+/** What the reader should know and do; the raw cause goes to the publication. */
+function sendFailureText(e: SendFailure, memoryOnly: boolean) {
+  const cause = e.cause;
+  const kept = memoryOnly
+    ? "It is still waiting on this page — keep the page open"
+    : "It is still saved on this device";
+  const ref =
+    cause instanceof CommunityRequestError && cause.reference
+      ? ` (Reference ${cause.reference})`
+      : "";
+  if (cause instanceof CommunityRequestError && cause.retryable)
+    return `We couldn’t send this yet after ${e.attempts} tries. ${kept}, then tap Send again when you have a better connection. Our editors have been alerted.${ref}`;
+  return `${e.message}${ref}`;
 }
