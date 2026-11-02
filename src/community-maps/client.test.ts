@@ -133,7 +133,10 @@ describe("failures carry what the reader and editors need", () => {
     });
   });
   it("falls back to fetch when sendBeacon throws", () => {
-    const fetcher = vi.fn(async () => new Response(null, { status: 202 }));
+    const fetcher = vi.fn(
+      async (_url: string, _init?: RequestInit) =>
+        new Response(null, { status: 202 }),
+    );
     vi.stubGlobal("fetch", fetcher);
     vi.stubGlobal("navigator", {
       ...navigator,
