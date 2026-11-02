@@ -7,11 +7,11 @@ import {
   waitFor,
   cleanup,
 } from "@testing-library/react";
-import type { CommunityMapsClient } from "./client";
+import { CommunityRequestError, type CommunityMapsClient } from "./client";
 import type { CommunityMapCollection } from "@scalemule/sdk";
-import { CommunityStreetCapture } from "./capture";
+import { CommunityStreetCapture, RETRY_DELAYS_MS } from "./capture";
 import { CaptureDraftStore } from "./capture-draft";
-import { indexedDB } from "fake-indexeddb";
+import { indexedDB, IDBObjectStore } from "fake-indexeddb";
 vi.mock("@scalemule/sdk", async () => ({
   ...(await vi.importActual<Record<string, unknown>>("@scalemule/sdk")),
   prepareCommunityMapAttachment: async (file: File) => file,
@@ -64,8 +64,10 @@ async function choose(n: number) {
   );
   await screen.findByText(`${n} waiting`);
 }
-function send() {
-  const button = screen.getByRole("button", { name: /Send .* for review/ });
+async function send() {
+  const button = await screen.findByRole("button", {
+    name: /Send .* for review/,
+  });
   fireEvent.submit(button.closest("form")!);
 }
 describe("street capture", () => {
@@ -89,7 +91,7 @@ describe("street capture", () => {
     await setup(c);
     await choose(1);
     fireEvent.click(screen.getByRole("checkbox"));
-    send();
+    await send();
     await screen.findByRole("button", { name: "Reload saved queue" });
     expect(screen.getByText("1 waiting")).toBeTruthy();
     expect(
@@ -108,7 +110,7 @@ describe("street capture", () => {
     await screen.findByLabelText("Street or nearest intersection");
     await screen.findByText("1 waiting");
     fireEvent.click(screen.getByRole("checkbox"));
-    send();
+    await send();
     await waitFor(() => expect(c.upload).toHaveBeenCalledTimes(2));
     await screen.findByText("0 waiting");
     expect(vi.mocked(c.upload).mock.calls[1][3].idempotency_key).toBe(retryKey);
@@ -123,11 +125,11 @@ describe("street capture", () => {
       { target: { files: photos(1) } },
     );
     await screen.findByText("3 waiting");
-    send();
+    await send();
     await screen.findByRole("alert");
     expect(c.submit).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("checkbox"));
-    send();
+    await send();
     await waitFor(() => expect(c.upload).toHaveBeenCalledTimes(3));
     expect(vi.mocked(c.submit).mock.calls[0][1].proposal).toMatchObject({
       title: "Улица 🎃",
@@ -166,7 +168,7 @@ describe("street capture", () => {
     await screen.findByText(/Location read for this capture \(about 12 m\)/);
     expect(getCurrentPosition).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("checkbox"));
-    send();
+    await send();
     await waitFor(() => expect(c.upload).toHaveBeenCalledTimes(2));
     const fields = vi.mocked(c.upload).mock.calls.map((call) => call[3]);
     const library = fields.find((f) => !f.device_position);
@@ -198,9 +200,9 @@ describe("street capture", () => {
       { target: { files: photos(1) } },
     );
     await screen.findByText("1 waiting");
-    expect(getCurrentPosition).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(getCurrentPosition).toHaveBeenCalledTimes(1));
     fireEvent.click(screen.getByRole("checkbox"));
-    send();
+    await send();
     await waitFor(() => expect(c.upload).toHaveBeenCalledTimes(1));
     expect(vi.mocked(c.upload).mock.calls[0][3].device_position).toBeFalsy();
   });
@@ -222,7 +224,7 @@ describe("street capture", () => {
     await screen.findByText(/Location attached/);
     await choose(1);
     fireEvent.click(screen.getByRole("checkbox"));
-    send();
+    await send();
     await waitFor(() => expect(c.upload).toHaveBeenCalledTimes(1));
     expect(vi.mocked(c.upload).mock.calls[0][3].device_position).toMatchObject({
       latitude: 37.978,
@@ -239,10 +241,10 @@ describe("street capture", () => {
     await setup(c);
     await choose(1);
     fireEvent.click(screen.getByRole("checkbox"));
-    send();
+    await send();
     await screen.findByText("Connection interrupted");
     const key = vi.mocked(c.upload).mock.calls[0][3].idempotency_key;
-    send();
+    await send();
     await waitFor(() => expect(c.upload).toHaveBeenCalledTimes(2));
     expect(vi.mocked(c.upload).mock.calls[1][3].idempotency_key).toBe(key);
     expect(c.submit).toHaveBeenCalledTimes(1);
@@ -252,7 +254,7 @@ describe("street capture", () => {
     await setup(c);
     await choose(11);
     fireEvent.click(screen.getByRole("checkbox"));
-    send();
+    await send();
     await waitFor(() => expect(c.upload).toHaveBeenCalledTimes(11));
     expect(c.submit).toHaveBeenCalledTimes(2);
     expect(vi.mocked(c.submit).mock.calls[0][1].idempotency_key).not.toBe(
@@ -317,4 +319,149 @@ describe("past seasons", () => {
       expect(c.upload).not.toHaveBeenCalled();
     },
   );
+  describe("when sending meets real-world failures", () => {
+    const delays = [...RETRY_DELAYS_MS];
+    afterEach(() => {
+      RETRY_DELAYS_MS.splice(0, RETRY_DELAYS_MS.length, ...delays);
+    });
+    const fast = () =>
+      RETRY_DELAYS_MS.splice(0, RETRY_DELAYS_MS.length, 1, 1, 1);
+    it("resends a photo after a temporary server failure with the same key", async () => {
+      fast();
+      const c = client();
+      c.diagnose = vi.fn();
+      vi.mocked(c.upload)
+        .mockRejectedValueOnce(
+          new CommunityRequestError("down", 503, true, "req_1"),
+        )
+        .mockRejectedValueOnce(new CommunityRequestError("lost", 0))
+        .mockResolvedValueOnce({ id: "media" });
+      await setup(c);
+      await choose(1);
+      fireEvent.click(screen.getByRole("checkbox"));
+      await send();
+      await screen.findByText("0 waiting");
+      expect(c.upload).toHaveBeenCalledTimes(3);
+      const keys = vi
+        .mocked(c.upload)
+        .mock.calls.map((call) => call[3].idempotency_key);
+      expect(new Set(keys).size).toBe(1);
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(c.diagnose).not.toHaveBeenCalled();
+    });
+    it("keeps the photo, explains what to do and alerts the publication when retries run out", async () => {
+      fast();
+      const c = client();
+      c.diagnose = vi.fn();
+      vi.mocked(c.upload).mockRejectedValue(
+        new CommunityRequestError(
+          "The guide is temporarily unavailable.",
+          503,
+          true,
+          "req_🎃",
+        ),
+      );
+      await setup(c);
+      await choose(1);
+      fireEvent.click(screen.getByRole("checkbox"));
+      await send();
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toMatch(/still saved on this device/);
+      expect(alert.textContent).toMatch(/Reference req_🎃/);
+      expect(screen.getByText("1 waiting")).toBeTruthy();
+      expect(c.upload).toHaveBeenCalledTimes(RETRY_DELAYS_MS.length + 1);
+      expect(c.diagnose).toHaveBeenCalledWith(
+        "gardens",
+        expect.objectContaining({
+          kind: "upload_failed",
+          status: 503,
+          reference: "req_🎃",
+          attempts: RETRY_DELAYS_MS.length + 1,
+          file_type: "image/jpeg",
+          submission_id: "submission",
+        }),
+      );
+    });
+    it("does not resend a rejected photo", async () => {
+      fast();
+      const c = client();
+      c.diagnose = vi.fn();
+      vi.mocked(c.upload).mockRejectedValue(
+        new CommunityRequestError("Choose a JPEG, PNG or WebP photo.", 415),
+      );
+      await setup(c);
+      await choose(1);
+      fireEvent.click(screen.getByRole("checkbox"));
+      await send();
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("Choose a JPEG, PNG or WebP photo.");
+      expect(c.upload).toHaveBeenCalledTimes(1);
+    });
+    it("retries the reader check that starts every send", async () => {
+      fast();
+      const c = client();
+      const own = vi.mocked(c.ownSubmissions!);
+      await setup(c);
+      await choose(1);
+      own.mockRejectedValueOnce(new CommunityRequestError("lost", 0));
+      fireEvent.click(screen.getByRole("checkbox"));
+      await send();
+      await screen.findByText("0 waiting");
+      expect(c.upload).toHaveBeenCalledTimes(1);
+    });
+    it("retries creating the street submission before any photo is sent", async () => {
+      fast();
+      const c = client();
+      vi.mocked(c.submit)
+        .mockRejectedValueOnce(new CommunityRequestError("busy", 502))
+        .mockResolvedValueOnce({ id: "submission", received: true });
+      await setup(c);
+      await choose(1);
+      fireEvent.click(screen.getByRole("checkbox"));
+      await send();
+      await screen.findByText("0 waiting");
+      expect(c.submit).toHaveBeenCalledTimes(2);
+      const keys = vi
+        .mocked(c.submit)
+        .mock.calls.map((call) => call[1].idempotency_key);
+      expect(keys[0]).toBe(keys[1]);
+    });
+    it("still takes and sends photos when the browser refuses device storage (Safari Private Browsing)", async () => {
+      Object.defineProperty(globalThis, "indexedDB", {
+        value: indexedDB,
+        configurable: true,
+      });
+      const put = IDBObjectStore.prototype.put;
+      vi.spyOn(IDBObjectStore.prototype, "put").mockImplementation(function (
+        this: IDBObjectStore,
+        ...args: Parameters<IDBObjectStore["put"]>
+      ) {
+        if (this.name === "files")
+          throw new DOMException(
+            "Error preparing Blob/File data",
+            "DataCloneError",
+          );
+        return put.apply(this, args);
+      });
+      const c = client();
+      c.diagnose = vi.fn();
+      await setup(c);
+      await choose(1);
+      await screen.findByText(/cannot save a queue after closing/);
+      expect(
+        screen.queryByRole("button", { name: "Reload saved queue" }),
+      ).toBeNull();
+      fireEvent.click(screen.getByRole("checkbox"));
+      await send();
+      await screen.findByText("0 waiting");
+      expect(c.upload).toHaveBeenCalledTimes(1);
+      expect(c.diagnose).toHaveBeenCalledWith(
+        "gardens",
+        expect.objectContaining({
+          kind: "storage_degraded",
+          storage: "memory",
+        }),
+      );
+    });
+  });
 });

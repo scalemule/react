@@ -1,3 +1,10 @@
+## 0.0.28
+
+- Community Maps capture works in Safari Private Browsing and in-app browsers: photo bytes are queued as plain data instead of `File` objects (which WebKit refuses to store there), and when a device refuses storage altogether the queue keeps working in the open page instead of locking the form behind "Reload saved queue".
+- Dropped connections, timeouts and temporary server errors are resent automatically (three resends with backoff, same idempotency key) before the reader sees anything. Failures that remain say plainly that the photo is still saved, what to do, and the reference the publication can look up.
+- Failed sends, failed loads and refused device storage are reported to the publication (`client.diagnose`, `POST …/collections/{slug}/diagnostics`) with status, reference, attempts, file type/size and a coarse browser family — never photos, text, contact details or coordinates.
+- `CommunityRequestError` carries `status`, `retryable`, `reference` and `code`; `CaptureQueueConflict` now only means another tab saved a newer queue.
+
 ## 0.0.21
 
 - Keep contributor history and media accessible when a collection stops accepting submissions.

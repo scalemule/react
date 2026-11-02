@@ -21,6 +21,34 @@ export interface CommunityUploadReceipt {
   position_captured?: boolean;
   device_position_recorded?: boolean;
 }
+/** What a reader's browser saw when sending failed; never includes their content. */
+export interface CommunityDiagnostic {
+  kind: "upload_failed" | "submit_failed" | "storage_degraded" | "load_failed";
+  stage: string;
+  status?: number | null;
+  code?: string | null;
+  reference?: string | null;
+  attempts?: number | null;
+  file_type?: string | null;
+  file_size?: number | null;
+  storage?: "indexeddb" | "memory" | null;
+  online?: boolean | null;
+  submission_id?: string | null;
+}
+const RETRYABLE = new Set([0, 408, 425, 429, 500, 502, 503, 504]);
+/** A failed guide request. `retryable` failures are worth sending again unchanged. */
+export class CommunityRequestError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly retryable = RETRYABLE.has(status),
+    readonly reference?: string,
+    readonly code?: string,
+  ) {
+    super(message);
+    this.name = "CommunityRequestError";
+  }
+}
 export interface CommunityUploadOptions {
   signal?: AbortSignal;
   onProgress?: (percent: number) => void;
@@ -99,6 +127,8 @@ export interface CommunityMapsClient {
     options?: CommunityUploadOptions,
   ): Promise<CommunityUploadReceipt>;
   mediaUrl(slug: string, id: string): string;
+  /** Best effort: tells the publication a reader could not send. Never throws. */
+  diagnose?(slug: string, event: CommunityDiagnostic): void;
 }
 /** Use for already authenticated clients. Server keys belong only on your server. */
 export function communityMapsSdkClient(
@@ -191,15 +221,27 @@ export function createCommunityMapsBrowserClient(
       });
       const result = await response.json().catch(() => null);
       if (!response.ok || result?.error || result?.data == null)
-        throw new Error(
+        throw new CommunityRequestError(
           result?.error?.message ||
             "The community guide is unavailable. Please try again.",
+          response.ok && !result ? 502 : response.status,
+          typeof result?.error?.retryable === "boolean"
+            ? result.error.retryable
+            : undefined,
+          result?.error?.reference,
+          result?.error?.code,
         );
       return result.data as T;
     } catch (e) {
       if (timedOut)
-        throw new Error(
+        throw new CommunityRequestError(
           "The connection is taking too long. Check your connection, then try again.",
+          408,
+        );
+      if (e instanceof TypeError)
+        throw new CommunityRequestError(
+          "The connection was interrupted. Check your connection, then try again.",
+          0,
         );
       throw e;
     } finally {
@@ -306,7 +348,12 @@ export function createCommunityMapsBrowserClient(
             result = JSON.parse(xhr.responseText);
           } catch {
             reject(
-              new Error("Upload response was interrupted. Retry this file."),
+              new CommunityRequestError(
+                "Upload response was interrupted. Retry this file.",
+                // A 2xx without a readable body means the answer was lost; any
+                // other status (an HTML 413 or 403 page) is reported as it is.
+                xhr.status >= 200 && xhr.status < 300 ? 502 : xhr.status,
+              ),
             );
             return;
           }
@@ -315,22 +362,32 @@ export function createCommunityMapsBrowserClient(
             resolve(result.data);
           } else
             reject(
-              new Error(
+              new CommunityRequestError(
                 result?.error?.message || "Upload failed. Retry this file.",
+                xhr.status >= 200 && xhr.status < 300 ? 502 : xhr.status,
+                typeof result?.error?.retryable === "boolean"
+                  ? result.error.retryable
+                  : undefined,
+                result?.error?.reference,
+                result?.error?.code,
               ),
             );
         };
         xhr.onerror = () => {
           clean();
           reject(
-            new Error("Connection interrupted. Your queue is ready to retry."),
+            new CommunityRequestError(
+              "Connection interrupted. Your queue is ready to retry.",
+              0,
+            ),
           );
         };
         xhr.ontimeout = () => {
           clean();
           reject(
-            new Error(
+            new CommunityRequestError(
               "Upload timed out. Retry when you have a stronger connection.",
+              408,
             ),
           );
         };
@@ -343,5 +400,61 @@ export function createCommunityMapsBrowserClient(
       });
     },
     mediaUrl: (s, id) => `${path(s)}/media/${encodeURIComponent(id)}`,
+    diagnose: (s, event) => {
+      let body: string;
+      try {
+        body = JSON.stringify({ ...event, browser: browserFamily() });
+      } catch {
+        return;
+      }
+      const url = `${path(s)}/diagnostics`;
+      // application/json keeps the beacon in CORS mode, so the Origin header
+      // the publication checks is always sent.
+      try {
+        const blob = new Blob([body], { type: "application/json" });
+        if (navigator.sendBeacon?.(url, blob)) return;
+      } catch {
+        // Some engines throw for non-safelisted beacon types; use fetch.
+      }
+      try {
+        void fetch(url, {
+          method: "POST",
+          body,
+          keepalive: true,
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+        }).catch(() => {});
+      } catch {
+        // Reporting must never break the reader's flow.
+      }
+    },
   };
+}
+/** Coarse browser family for diagnostics; never the full user agent. */
+export function browserFamily(ua = globalThis.navigator?.userAgent || "") {
+  const app = /FBAN|FBAV|FB_IAB/.test(ua)
+    ? "Facebook app"
+    : /Instagram/.test(ua)
+      ? "Instagram app"
+      : /GSA\//.test(ua)
+        ? "Google app"
+        : /EdgiOS|EdgA\/|Edg\//.test(ua)
+          ? "Edge"
+          : /CriOS|Chrome\//.test(ua)
+            ? "Chrome"
+            : /FxiOS|Firefox\//.test(ua)
+              ? "Firefox"
+              : /Safari\//.test(ua)
+                ? "Safari"
+                : "Other";
+  const os = /iPhone|iPad|iPod/.test(ua)
+    ? `iOS ${(/OS (\d+)_/.exec(ua) || [])[1] || ""}`.trim()
+    : /Android/.test(ua)
+      ? "Android"
+      : /Mac OS X/.test(ua)
+        ? "macOS"
+        : /Windows/.test(ua)
+          ? "Windows"
+          : "Other";
+  return `${app} · ${os}`;
 }
