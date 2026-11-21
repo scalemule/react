@@ -1,3 +1,8 @@
+## 0.0.29
+
+- Community Maps neighborhoods: `CommunityCityAtlasConfig` accepts `places` (`CommunityAtlasPlace`: `id`, `name`, `coordinates`, optional `zoom`) and `focusPlace`. The guide shows a "Neighborhoods" button row and each place as a text label on the map (both map styles); choosing one flies there. `focusPlace` opens the map centred on that place (zoom 15 by default); unknown ids and unusable coordinates open on the whole community, and "Whole city/community" still fits the whole community. Neighborhood labels yield to each other on collision (the selected one always shows) and take precedence over landmark drawings.
+- New pure helpers `communityAtlasView` and `communityAtlasPlaces`. Pages that pass no `places` render exactly as before.
+
 ## 0.0.28
 
 - Community Maps capture works in Safari Private Browsing and in-app browsers: photo bytes are queued as plain data instead of `File` objects (which WebKit refuses to store there), and when a device refuses storage altogether the queue keeps working in the open page instead of locking the form behind "Reload saved queue".
