@@ -425,7 +425,7 @@
 @media(max-width:800px){.smca-heading{align-items:flex-start;gap:1rem}.smca-heading p:last-child{font-size:.85rem}.smca-heading .smca-submit{font-size:.7rem;padding:.65rem .8rem}.smca-atlas{grid-template-columns:210px minmax(0,1fr)}.smca-sidebar{padding:1.5rem 1rem}.smca-map-caption strong{font-size:1rem}.smca-map-caption span{font-size:.6rem}.smca-communities{gap:.4rem .9rem}.smca-landmark img{width:62px;height:62px}.smca-landmark span{font-size:9px;max-width:100px}.smcm .smca button.smca-landmark{width:108px}}
 @media(max-width:600px){.smca{margin-top:.7rem}.smca-heading{display:block;padding-bottom:1.1rem}.smcm .smca h1{font-size:2.3rem}.smca-heading .smca-submit{margin-top:.9rem}.smca-toolbar{align-items:flex-start;flex-direction:column;gap:.7rem}.smca-communities{font-size:.69rem;width:100%;justify-content:space-between;gap:.6rem}.smca-modes{align-self:flex-end}.smca-atlas{display:flex;flex-direction:column;min-height:0}.smca-map-frame{order:-1;min-height:550px}.smca-map-canvas{min-height:550px}.smca-sidebar{border-right:0;border-top:1px solid #bac0a6;padding:1.2rem;display:grid;grid-template-columns:1fr 1fr;gap:1rem}.smca-field-note{grid-column:1/-1;display:none}.smca-legend{margin:0;border:0;padding:0}.smca-count{margin:0;justify-content:flex-end}.smca-count>strong{font-size:2rem}.smca-sidebar .smca-privacy{grid-column:1/-1;padding:.5rem 0}.smca-help,.smca-selection{grid-column:1/-1;margin:0}.smca-help{display:none}.smca-map-caption{bottom:16px}.smca-map-caption strong{font-size:1rem}.smca-map-footer{flex-direction:column;gap:.2rem;font-size:.6rem}.smca-discover{display:block;padding:1.4rem 0}.smca-discover .smca-submit{margin-top:1rem}.smca-map-placeholder{min-height:550px;order:-1}.smca-landmark img{width:58px;height:58px}.smca-landmark span{font-size:8px;max-width:90px}.smcm .smca button.smca-landmark{width:94px}}
 @media(prefers-reduced-motion:reduce){.smca *{transition:none!important}}
-.smcm .smca button.smca-landmark[hidden]{display:none}
+.smcm .smca button.smca-landmark[hidden],.smcm .smca button.smca-place[hidden]{display:none}
 .smcm .smca .smca-city-toggle{display:flex;flex-direction:row;align-items:center;gap:.5rem;margin-left:auto;white-space:nowrap;cursor:pointer;min-height:32px;font:600 .72rem/1.4 system-ui,sans-serif}
 .smcm .smca .smca-city-toggle input{appearance:none;width:30px;height:18px;min-height:18px;padding:0;background:#c6ccb8;border:1px solid #a7b098;border-radius:12px;position:relative;margin:0;cursor:pointer;flex-shrink:0}
 .smcm .smca .smca-city-toggle input::before{content:"";position:absolute;width:12px;height:12px;border-radius:50%;background:#fffdf1;top:2px;left:2px;transition:transform .15s}
@@ -577,3 +577,14 @@
   text-decoration: underline;
   cursor: pointer;
 }
+/* Neighborhoods inside a community (0.0.29): a chip row above the atlas and plain text labels on the map. */
+.smca-places{display:flex;align-items:center;flex-wrap:wrap;gap:.4rem .9rem;padding:.6rem 0;border-bottom:1px solid #bac0a6;font:600 .74rem/1.4 system-ui,sans-serif}
+.smca-places>span{color:#737563;margin-right:.2rem}
+.smca-places>div{display:flex;flex-wrap:wrap;gap:.35rem}
+.smcm .smca .smca-places button{min-height:36px;padding:.35rem .7rem;border:1px solid #a5b18b;border-radius:999px;background:#fbf7e6;color:#3e5940;font:inherit;cursor:pointer}
+.smcm .smca .smca-places button:hover{background:#fffbed}
+.smcm .smca .smca-places button[aria-pressed=true]{background:#3e5940;border-color:#3e5940;color:#fffbed}
+.smcm .smca button.smca-place{border:1px solid #8f9c70;border-radius:3px;background:#fffbedf0;color:#2f4630;padding:3px 7px;font:700 11px/1.15 system-ui,sans-serif;letter-spacing:.02em;text-transform:uppercase;white-space:nowrap;box-shadow:0 1px 4px #3a4b2f26;cursor:pointer;min-height:0}
+.smcm .smca button.smca-place:hover,.smcm .smca button.smca-place[aria-pressed=true]{background:#3e5940;color:#fffbed;border-color:#3e5940}
+@media(max-width:600px){.smca-places{font-size:.68rem}.smcm .smca .smca-places button{min-height:44px}.smcm .smca button.smca-place{font-size:10px}}
+@media(forced-colors:active){.smcm .smca .smca-places button[aria-pressed=true],.smcm .smca button.smca-place[aria-pressed=true]{outline:2px solid Highlight}}

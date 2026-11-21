@@ -22,11 +22,59 @@ import {
   type CommunityStreetActivity,
 } from "./atlas-data";
 
+/** A named neighborhood inside the atlas community, shown as a label the reader can jump to. */
+export interface CommunityAtlasPlace {
+  id: string;
+  name: string;
+  /** [longitude, latitude] */
+  coordinates: [number, number];
+  /** Camera zoom when the map centres on this place (default 15). */
+  zoom?: number;
+}
 export interface CommunityCityAtlasConfig {
   geographyUrl: string;
   areaSlug: string;
   /** TileJSON URL for a vector source using the OpenMapTiles schema. */
   contextTilesUrl?: string;
+  /** Neighborhoods inside this community, in display order. */
+  places?: CommunityAtlasPlace[];
+  /** Place id the map opens centred on; unknown ids open on the whole community. */
+  focusPlace?: string;
+}
+export type CommunityAtlasView =
+  | { kind: "bounds" }
+  | { kind: "place"; id: string; center: [number, number]; zoom: number };
+const DEFAULT_PLACE_ZOOM = 15;
+function validPlace(place: CommunityAtlasPlace | undefined) {
+  return Boolean(
+    place &&
+    Array.isArray(place.coordinates) &&
+    place.coordinates.length === 2 &&
+    place.coordinates.every((v) => Number.isFinite(v)) &&
+    Math.abs(place.coordinates[0]) <= 180 &&
+    Math.abs(place.coordinates[1]) <= 90,
+  );
+}
+/** The camera a map opens with: centred on a known, valid place, otherwise the whole community. */
+export function communityAtlasView(
+  places: readonly CommunityAtlasPlace[] | undefined,
+  focusPlace: string | undefined,
+): CommunityAtlasView {
+  const place = focusPlace
+    ? places?.find((p) => p.id === focusPlace)
+    : undefined;
+  if (!place || !validPlace(place)) return { kind: "bounds" };
+  const zoom =
+    typeof place.zoom === "number" && Number.isFinite(place.zoom)
+      ? Math.min(18, Math.max(0, place.zoom))
+      : DEFAULT_PLACE_ZOOM;
+  return { kind: "place", id: place.id, center: place.coordinates, zoom };
+}
+/** Places with usable coordinates, in their given order. */
+export function communityAtlasPlaces(
+  places: readonly CommunityAtlasPlace[] | undefined,
+): CommunityAtlasPlace[] {
+  return (places || []).filter(validPlace);
 }
 function artUrl(landmark: CommunityAtlasLandmark) {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(atlasLandmarkSvg(landmark.kind))}`;
@@ -47,8 +95,12 @@ export function CommunityIllustratedMap({
   selectedLandmark,
   cityOnly,
   contextTilesUrl,
+  places,
+  selectedPlace,
+  placeRequest,
   onLandmark,
   onStreet,
+  onPlace,
 }: {
   geography: CommunityAtlasGeography;
   features: CommunityMapFeature[];
@@ -57,8 +109,16 @@ export function CommunityIllustratedMap({
   selectedLandmark?: string;
   cityOnly: boolean;
   contextTilesUrl?: string;
+  /** Neighborhood labels inside the community. */
+  places?: CommunityAtlasPlace[];
+  /** Place the camera is centred on; undefined means the whole community. */
+  selectedPlace?: string;
+  /** Changes whenever the reader asks for the selected place again (re-centres it). */
+  placeRequest?: number;
   onLandmark: (landmark: CommunityAtlasLandmark) => void;
   onStreet: (street: CommunityStreetActivity) => void;
+  /** Called with a place when its label is chosen, or undefined for the whole community. */
+  onPlace?: (place: CommunityAtlasPlace | undefined) => void;
 }) {
   const areaNoun = geography.areaKind || "city";
   const container = useRef<HTMLDivElement>(null);
@@ -69,9 +129,11 @@ export function CommunityIllustratedMap({
     () => communityStreetActivity(geography, features),
     [geography, features],
   );
-  const latest = useRef({ activity, onLandmark, onStreet });
-  latest.current = { activity, onLandmark, onStreet };
-  const fitCity = () =>
+  const usablePlaces = useMemo(() => communityAtlasPlaces(places), [places]);
+  const view = communityAtlasView(usablePlaces, selectedPlace);
+  const latest = useRef({ activity, onLandmark, onStreet, onPlace, view });
+  latest.current = { activity, onLandmark, onStreet, onPlace, view };
+  const fitCity = () => {
     instance.current?.fitBounds(geography.bounds, {
       padding: {
         top: 70,
@@ -81,6 +143,8 @@ export function CommunityIllustratedMap({
       },
       duration: 500,
     });
+    onPlace?.(undefined);
+  };
   useEffect(() => {
     if (!container.current) return;
     let disposed = false;
@@ -93,21 +157,26 @@ export function CommunityIllustratedMap({
       lib.setWorkerUrl(
         `/_scalemule/community-maps/maplibre-gl-worker-${lib.getVersion()}.mjs`,
       );
+      const initial = latest.current.view;
       const map = new lib.Map({
         container: container.current,
         style:
           mode === "practical" && practicalStyleUrl
             ? practicalStyleUrl
             : illustratedStyle(geography, contextTilesUrl),
-        bounds: geography.bounds,
-        fitBoundsOptions: {
-          padding: {
-            top: 70,
-            bottom: 65,
-            left: (container.current?.clientWidth || 0) < 600 ? 24 : 60,
-            right: (container.current?.clientWidth || 0) < 600 ? 24 : 60,
-          },
-        },
+        ...(initial.kind === "place"
+          ? { center: initial.center, zoom: initial.zoom }
+          : {
+              bounds: geography.bounds,
+              fitBoundsOptions: {
+                padding: {
+                  top: 70,
+                  bottom: 65,
+                  left: (container.current?.clientWidth || 0) < 600 ? 24 : 60,
+                  right: (container.current?.clientWidth || 0) < 600 ? 24 : 60,
+                },
+              },
+            }),
         attributionControl: false,
         maxZoom: 18,
         minZoom: 0,
@@ -126,6 +195,10 @@ export function CommunityIllustratedMap({
         button: HTMLButtonElement;
         landmark: CommunityAtlasLandmark;
       }[] = [];
+      const placeEntries: {
+        button: HTMLButtonElement;
+        place: CommunityAtlasPlace;
+      }[] = [];
       // Keep map symbols at their real coordinates. Reveal crowded landmarks as
       // the reader zooms, rather than moving them to a fictional location.
       function updateLandmarks() {
@@ -135,6 +208,33 @@ export function CommunityIllustratedMap({
           top: number;
           bottom: number;
         }[] = [];
+        // Neighborhood labels first (the selected one always shows), so names the
+        // reader navigates by win over landmark drawings at whole-community zoom.
+        const selected = latest.current.view;
+        const orderedPlaces = [...placeEntries].sort(
+          (a, b) =>
+            Number(selected.kind === "place" && b.place.id === selected.id) -
+            Number(selected.kind === "place" && a.place.id === selected.id),
+        );
+        for (const { button, place } of orderedPlaces) {
+          button.hidden = false;
+          const point = map.project(place.coordinates);
+          const box = {
+            left: point.x - button.offsetWidth / 2,
+            right: point.x + button.offsetWidth / 2,
+            top: point.y - button.offsetHeight / 2,
+            bottom: point.y + button.offsetHeight / 2,
+          };
+          const collision = occupied.some(
+            (other) =>
+              box.left < other.right + 3 &&
+              box.right > other.left - 3 &&
+              box.top < other.bottom + 3 &&
+              box.bottom > other.top - 3,
+          );
+          button.hidden = collision;
+          if (!collision) occupied.push(box);
+        }
         for (const { button, landmark } of markerEntries) {
           button.hidden = map.getZoom() < (landmark.minZoom || 0);
           if (button.hidden) continue;
@@ -158,11 +258,16 @@ export function CommunityIllustratedMap({
       }
       const resize = new ResizeObserver(() => {
         map.resize();
-        const side = (container.current?.clientWidth || 0) < 600 ? 24 : 60;
-        map.fitBounds(geography.bounds, {
-          padding: { top: 70, bottom: 65, left: side, right: side },
-          duration: 0,
-        });
+        const current = latest.current.view;
+        if (current.kind === "place")
+          map.jumpTo({ center: current.center, zoom: current.zoom });
+        else {
+          const side = (container.current?.clientWidth || 0) < 600 ? 24 : 60;
+          map.fitBounds(geography.bounds, {
+            padding: { top: 70, bottom: 65, left: side, right: side },
+            duration: 0,
+          });
+        }
         updateLandmarks();
       });
       resize.observe(container.current);
@@ -266,6 +371,24 @@ export function CommunityIllustratedMap({
             );
           }
         }
+        // Neighborhood labels: plain text at the real coordinates, in both map styles.
+        for (const place of usablePlaces) {
+          const button = document.createElement("button");
+          button.className = "smca-place";
+          button.type = "button";
+          button.dataset.place = place.id;
+          button.setAttribute("aria-label", `Show ${place.name} on the map`);
+          button.textContent = place.name;
+          button.addEventListener("click", () =>
+            latest.current.onPlace?.(place),
+          );
+          placeEntries.push({ button, place });
+          markers.push(
+            new lib.Marker({ element: button, anchor: "center" })
+              .setLngLat(place.coordinates)
+              .addTo(map),
+          );
+        }
         map.on("move", updateLandmarks);
         updateLandmarks();
         setReady(true);
@@ -281,7 +404,37 @@ export function CommunityIllustratedMap({
       disposed = true;
       cleanup?.();
     };
-  }, [geography, mode, practicalStyleUrl, contextTilesUrl]);
+  }, [geography, mode, practicalStyleUrl, contextTilesUrl, usablePlaces]);
+  // A newly chosen place moves the camera; the whole-community button fits the bounds itself.
+  const viewKey =
+    view.kind === "place"
+      ? `${view.id}:${view.center.join(",")}:${view.zoom}:${placeRequest ?? 0}`
+      : "";
+  const firstView = useRef(true);
+  useEffect(() => {
+    if (!ready) return;
+    if (firstView.current) {
+      firstView.current = false;
+      return;
+    }
+    const current = latest.current.view;
+    if (current.kind === "place")
+      instance.current?.flyTo({
+        center: current.center,
+        zoom: current.zoom,
+        duration: 700,
+      });
+  }, [viewKey, ready]);
+  useEffect(() => {
+    container.current
+      ?.querySelectorAll<HTMLButtonElement>("[data-place]")
+      .forEach((button) =>
+        button.setAttribute(
+          "aria-pressed",
+          String(button.dataset.place === selectedPlace),
+        ),
+      );
+  }, [selectedPlace, ready]);
   useEffect(() => {
     const map = instance.current;
     if (!ready || !map) return;
@@ -418,6 +571,23 @@ export function CommunityCityGuide({
   const [mode, setMode] = useState<"illustrated" | "practical">("illustrated");
   const [landmark, setLandmark] = useState<CommunityAtlasLandmark>();
   const [selectedStreet, setStreet] = useState<CommunityStreetActivity>();
+  const places = useMemo(
+    () => communityAtlasPlaces(atlas.places),
+    [atlas.places],
+  );
+  const initialView = communityAtlasView(places, atlas.focusPlace);
+  const [placeId, setPlaceId] = useState<string | undefined>(
+    initialView.kind === "place" ? initialView.id : undefined,
+  );
+  const [placeRequest, setPlaceRequest] = useState(0);
+  const choosePlace = (id: string | undefined) => {
+    setPlaceId(id);
+    if (id) setPlaceRequest((v) => v + 1);
+  };
+  useEffect(() => {
+    const next = communityAtlasView(places, atlas.focusPlace);
+    setPlaceId(next.kind === "place" ? next.id : undefined);
+  }, [places, atlas.focusPlace, atlas.areaSlug]);
   const area = collection.areas.find((a) => a.slug === atlas.areaSlug);
   const areaId = area?.id;
   const areaNoun =
@@ -556,6 +726,28 @@ export function CommunityCityGuide({
           </button>
         </div>
       </nav>
+      {places.length > 0 && (
+        <nav
+          className="smca-places"
+          aria-label={`Neighborhoods in ${area?.name || "this community"}`}
+        >
+          <span className="smca-small-cap" aria-hidden="true">
+            Neighborhoods
+          </span>
+          <div>
+            {places.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                aria-pressed={p.id === placeId}
+                onClick={() => choosePlace(p.id)}
+              >
+                {p.name}
+              </button>
+            ))}
+          </div>
+        </nav>
+      )}
       <div className="smca-atlas">
         <aside className="smca-sidebar" aria-label="Map guide">
           <div className="smca-field-note">
@@ -656,6 +848,15 @@ export function CommunityCityGuide({
             cityOnly={cityOnly}
             contextTilesUrl={atlas.contextTilesUrl}
             selectedLandmark={landmark?.id}
+            {...(places.length
+              ? {
+                  places,
+                  selectedPlace: placeId,
+                  placeRequest,
+                  onPlace: (value: CommunityAtlasPlace | undefined) =>
+                    choosePlace(value?.id),
+                }
+              : {})}
             onLandmark={(value) => {
               setLandmark(value);
               setStreet(undefined);
